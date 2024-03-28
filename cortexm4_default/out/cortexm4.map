@@ -1,0 +1,333 @@
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+CODE             0x0000000020000000 0x0000000000008000 xr
+DATA             0x0000000000010400 0x0000000000001c00 rw
+*default*        0x0000000000000000 0xffffffffffffffff
+
+Linker script and memory map
+
+                0x0000000000000200                _system_stack_size = 0x200
+
+.text           0x0000000020000000      0x674
+                0x0000000020000000                . = ALIGN (0x4)
+                0x0000000020000000                _stext = .
+ *(.isr_vector)
+ .isr_vector    0x0000000020000000      0x140 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+                0x0000000020000000                g_pfnVectors
+                0x0000000020000140                . = ALIGN (0x4)
+ *(.text.Reset_Handler)
+ .text.Reset_Handler
+                0x0000000020000140       0x58 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+                0x0000000020000140                Reset_Handler
+                0x000000002000016e                NMI_Handler
+                0x0000000020000170                HardFault_Handler
+                0x0000000020000172                MemManage_Handler
+                0x0000000020000174                BusFault_Handler
+                0x0000000020000176                UsageFault_Handler
+                0x0000000020000178                SVC_Handler
+                0x000000002000017a                DebugMon_Handler
+                0x000000002000017c                PendSV_Handler
+                0x000000002000017e                SysTick_Handler
+ *(.text)
+ .text          0x0000000020000198        0x0 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+ .text          0x0000000020000198      0x180 main.o
+                0x0000000020000198                main
+                0x000000002000026c                RXINT0_IRQHandler
+                0x0000000020000288                TXINT0_IRQHandler
+                0x00000000200002a4                RXOVRINT0_IRQHandler
+                0x00000000200002c0                TXOVRINT0_IRQHandler
+                0x00000000200002dc                arm_delay_us
+ .text          0x0000000020000318      0x330 startriscv.o
+                0x0000000020000318                start_riscv
+                0x000000002000040c                codecpy
+                0x0000000020000448                codecpy4
+                0x0000000020000488                memcpy
+                0x00000000200004cc                cpycode2riscv
+                0x0000000020000564                cpycode2riscv4
+ .text          0x0000000020000648        0x0 Libraries/NE004xx_Driver/Source/ne004xx_uart.o
+ .text          0x0000000020000648       0x28 Libraries/CMSIS/NE004/NE004PLUS/Source//system_ne004xx.o
+                0x0000000020000648                SystemInit
+                0x0000000020000664                SystemCoreClockUpdate
+ *(.text.*)
+ .text.Default_Handler
+                0x0000000020000670        0x2 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+                0x0000000020000670                GPIO0_N6_IRQHandler
+                0x0000000020000670                GPIO0_N4_IRQHandler
+                0x0000000020000670                GPIO0_N11_IRQHandler
+                0x0000000020000670                PWM1_IRQHandler
+                0x0000000020000670                DMAC1_ERR_IRQHandler
+                0x0000000020000670                GPIO0_N12_IRQHandler
+                0x0000000020000670                GPIO0_N13_IRQHandler
+                0x0000000020000670                GPIO0_N18_IRQHandler
+                0x0000000020000670                FLASH_SSI_INTR_IRQHandler
+                0x0000000020000670                AAON_ACTIVE_IRQHandler
+                0x0000000020000670                SSI_RXO_IRQHandler
+                0x0000000020000670                DMAC0_ERR_IRQHandler
+                0x0000000020000670                DMAC0_SRC_DONE_IRQHandler
+                0x0000000020000670                GPIO0_N3_IRQHandler
+                0x0000000020000670                GPIO0_N9_IRQHandler
+                0x0000000020000670                SSI_RXU_IRQHandler
+                0x0000000020000670                I2S0_IRQOUT_IRQHandler
+                0x0000000020000670                PDM_AVAIL_IRQHandler
+                0x0000000020000670                DMAC1_DST_DONE_IRQHandler
+                0x0000000020000670                RTCINT_IRQHandler
+                0x0000000020000670                GPIO0_N5_IRQHandler
+                0x0000000020000670                GPIO0_N0_IRQHandler
+                0x0000000020000670                GPIO0_N8_IRQHandler
+                0x0000000020000670                TIMER0_IRQHandler
+                0x0000000020000670                GPIO0_N1_IRQHandler
+                0x0000000020000670                SSI_RXF_IRQHandler
+                0x0000000020000670                TIMER1_IRQHandler
+                0x0000000020000670                RISCV_NOTICE_IRQHandler
+                0x0000000020000670                GPIO0_N2_IRQHandler
+                0x0000000020000670                DMAC0_BLOCK_DONe_IRQHandler
+                0x0000000020000670                SSI_TXO_IRQHandler
+                0x0000000020000670                Default_Handler
+                0x0000000020000670                DMAC0_DST_DONE_IRQHandler
+                0x0000000020000670                GPIO0_N16_IRQHandler
+                0x0000000020000670                DMAC0_COMBINE_DONE_IRQHandler
+                0x0000000020000670                DMAC1_TRANS_DONE_IRQHandler
+                0x0000000020000670                I2C0_IRQOUT_IRQHandler
+                0x0000000020000670                DMAC1_SRC_DONE_IRQHandler
+                0x0000000020000670                GPIO0_N15_IRQHandler
+                0x0000000020000670                I2C1_IRQOUT_IRQHandler
+                0x0000000020000670                SSI_MST_IRQHandler
+                0x0000000020000670                PWM0_IRQHandler
+                0x0000000020000670                SSI_TXE_IRQHandler
+                0x0000000020000670                GPIO0_N17_IRQHandler
+                0x0000000020000670                GPIO0_N7_IRQHandler
+                0x0000000020000670                GPIO0_N10_IRQHandler
+                0x0000000020000670                DMAC0_TRANS_DONe_IRQHandler
+                0x0000000020000670                REQ_FFT_DONE_IRQHandler
+                0x0000000020000670                GPIO0_N14_IRQHandler
+                0x0000000020000670                RISCV2ARM_IRQHandler
+                0x0000000020000670                DMAC1_BLOCK_DONE_IRQHandler
+                0x0000000020000670                I2S1_IRQOUT_IRQHandler
+                0x0000000020000670                DMAC1_COMBINE_DONE_IRQHandler
+                0x0000000020000670                VAON_ACTIVE_IRQHandler
+ *(.rodata)
+ *(.rodata*)
+ *(.glue_7)
+ .glue_7        0x0000000020000672        0x0 linker stubs
+ *(.glue_7t)
+ .glue_7t       0x0000000020000672        0x0 linker stubs
+ *(.gnu.linkonce.t*)
+                0x0000000020000674                . = ALIGN (0x4)
+ *fill*         0x0000000020000672        0x2 00000000
+                0x0000000020000674                __fsymtab_start = .
+ *(FSymTab)
+                0x0000000020000674                __fsymtab_end = .
+                0x0000000020000674                . = ALIGN (0x4)
+                0x0000000020000674                __vsymtab_start = .
+ *(VSymTab)
+                0x0000000020000674                __vsymtab_end = .
+                0x0000000020000674                . = ALIGN (0x4)
+                0x0000000020000674                . = ALIGN (0x4)
+                0x0000000020000674                __rt_init_start = .
+ *(SORT_BY_NAME(.rti_fn*))
+                0x0000000020000674                __rt_init_end = .
+                0x0000000020000674                . = ALIGN (0x4)
+                0x0000000020000674                . = ALIGN (0x4)
+                0x0000000020000674                _etext = .
+                0x0000000020000674                __exidx_start = .
+
+.vfp11_veneer   0x0000000020000674        0x0
+ .vfp11_veneer  0x0000000020000674        0x0 linker stubs
+
+.v4_bx          0x0000000020000674        0x0
+ .v4_bx         0x0000000020000674        0x0 linker stubs
+
+.iplt           0x0000000020000674        0x0
+ .iplt          0x0000000020000674        0x0 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+
+.rel.dyn        0x0000000020000674        0x0
+ .rel.iplt      0x0000000020000674        0x0 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+
+.ARM.exidx      0x0000000020000674        0x0
+ *(.ARM.exidx* .gnu.linkonce.armexidx.*)
+                0x0000000020000674                _sidata = .
+                0x0000000020000674                __exidx_end = .
+
+.data           0x0000000000010400        0x4 load address 0x0000000020000674
+                0x0000000000010400                . = ALIGN (0x4)
+                0x0000000000010400                _sdata = .
+ *(.data)
+ .data          0x0000000000010400        0x0 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+ .data          0x0000000000010400        0x0 main.o
+ .data          0x0000000000010400        0x4 startriscv.o
+                0x0000000000010400                pflash
+ .data          0x0000000000010404        0x0 Libraries/NE004xx_Driver/Source/ne004xx_uart.o
+ .data          0x0000000000010404        0x0 Libraries/CMSIS/NE004/NE004PLUS/Source//system_ne004xx.o
+ *(.data.*)
+ *(.gnu.linkonce.d*)
+                0x0000000000010404                . = ALIGN (0x4)
+                0x0000000000010404                _edata = .
+
+.igot.plt       0x0000000000010404        0x0 load address 0x0000000020000678
+ .igot.plt      0x0000000000010404        0x0 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+
+.stack          0x0000000000010404      0x200 load address 0x0000000020000678
+                0x0000000000010604                . = (. + _system_stack_size)
+ *fill*         0x0000000000010404      0x200 
+                0x0000000000010604                . = ALIGN (0x4)
+                0x0000000000010604                _estack = .
+                0x0000000000010604                __bss_start = .
+
+.bss            0x0000000000010604       0x64 load address 0x0000000020000878
+                0x0000000000010604                . = ALIGN (0x4)
+                0x0000000000010604                _sbss = .
+ *(.bss)
+ .bss           0x0000000000010604        0x0 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+ .bss           0x0000000000010604        0x4 main.o
+                0x0000000000010604                value
+ .bss           0x0000000000010608       0x60 startriscv.o
+                0x0000000000010608                boot
+ .bss           0x0000000000010668        0x0 Libraries/NE004xx_Driver/Source/ne004xx_uart.o
+ .bss           0x0000000000010668        0x0 Libraries/CMSIS/NE004/NE004PLUS/Source//system_ne004xx.o
+ *(.bss.*)
+ *(COMMON)
+                0x0000000000010668                . = ALIGN (0x4)
+                0x0000000000010668                _ebss = .
+ *(.bss.init)
+                0x0000000000010668                __bss_end = .
+                0x0000000000010668                _end = .
+                0x0000000000010668                end = .
+
+.stab
+ *(.stab)
+
+.stabstr
+ *(.stabstr)
+
+.stab.excl
+ *(.stab.excl)
+
+.stab.exclstr
+ *(.stab.exclstr)
+
+.stab.index
+ *(.stab.index)
+
+.stab.indexstr
+ *(.stab.indexstr)
+
+.comment        0x0000000000000000       0x49
+ *(.comment)
+ .comment       0x0000000000000000       0x49 main.o
+                                         0x4a (size before relaxing)
+ .comment       0x0000000000000049       0x4a startriscv.o
+ .comment       0x0000000000000049       0x4a Libraries/NE004xx_Driver/Source/ne004xx_uart.o
+ .comment       0x0000000000000049       0x4a Libraries/CMSIS/NE004/NE004PLUS/Source//system_ne004xx.o
+
+.ARM.attributes
+                0x0000000000000000       0x2f
+ .ARM.attributes
+                0x0000000000000000       0x21 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+ .ARM.attributes
+                0x0000000000000021       0x2e main.o
+ .ARM.attributes
+                0x000000000000004f       0x2e startriscv.o
+ .ARM.attributes
+                0x000000000000007d       0x2e Libraries/NE004xx_Driver/Source/ne004xx_uart.o
+ .ARM.attributes
+                0x00000000000000ab       0x2e Libraries/CMSIS/NE004/NE004PLUS/Source//system_ne004xx.o
+
+.debug
+ *(.debug)
+
+.line
+ *(.line)
+
+.debug_srcinfo
+ *(.debug_srcinfo)
+
+.debug_sfnames
+ *(.debug_sfnames)
+
+.debug_aranges  0x0000000000000000       0x88
+ *(.debug_aranges)
+ .debug_aranges
+                0x0000000000000000       0x28 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+ .debug_aranges
+                0x0000000000000028       0x20 main.o
+ .debug_aranges
+                0x0000000000000048       0x20 startriscv.o
+ .debug_aranges
+                0x0000000000000068       0x20 Libraries/CMSIS/NE004/NE004PLUS/Source//system_ne004xx.o
+
+.debug_pubnames
+ *(.debug_pubnames)
+
+.debug_info     0x0000000000000000      0x702
+ *(.debug_info .gnu.linkonce.wi.*)
+ .debug_info    0x0000000000000000       0x22 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+ .debug_info    0x0000000000000022      0x16e main.o
+ .debug_info    0x0000000000000190      0x4d0 startriscv.o
+ .debug_info    0x0000000000000660       0xa2 Libraries/CMSIS/NE004/NE004PLUS/Source//system_ne004xx.o
+
+.debug_abbrev   0x0000000000000000      0x2af
+ *(.debug_abbrev)
+ .debug_abbrev  0x0000000000000000       0x12 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+ .debug_abbrev  0x0000000000000012       0xd8 main.o
+ .debug_abbrev  0x00000000000000ea      0x14f startriscv.o
+ .debug_abbrev  0x0000000000000239       0x76 Libraries/CMSIS/NE004/NE004PLUS/Source//system_ne004xx.o
+
+.debug_line     0x0000000000000000      0x6ef
+ *(.debug_line)
+ .debug_line    0x0000000000000000       0xa7 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+ .debug_line    0x00000000000000a7      0x199 main.o
+ .debug_line    0x0000000000000240      0x438 startriscv.o
+ .debug_line    0x0000000000000678        0x0 Libraries/NE004xx_Driver/Source/ne004xx_uart.o
+ .debug_line    0x0000000000000678       0x77 Libraries/CMSIS/NE004/NE004PLUS/Source//system_ne004xx.o
+
+.debug_frame    0x0000000000000000      0x23c
+ *(.debug_frame)
+ .debug_frame   0x0000000000000000       0xd8 main.o
+ .debug_frame   0x00000000000000d8       0xf8 startriscv.o
+ .debug_frame   0x00000000000001d0       0x6c Libraries/CMSIS/NE004/NE004PLUS/Source//system_ne004xx.o
+
+.debug_str      0x0000000000000000      0x376
+ *(.debug_str)
+ .debug_str     0x0000000000000000       0x74 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+ .debug_str     0x0000000000000074      0x175 main.o
+                                        0x1e6 (size before relaxing)
+ .debug_str     0x00000000000001e9       0xf0 startriscv.o
+                                        0x260 (size before relaxing)
+ .debug_str     0x00000000000002d9       0x2f Libraries/NE004xx_Driver/Source/ne004xx_uart.o
+                                         0xe6 (size before relaxing)
+ .debug_str     0x0000000000000308       0x6e Libraries/CMSIS/NE004/NE004PLUS/Source//system_ne004xx.o
+                                        0x1a9 (size before relaxing)
+
+.debug_loc
+ *(.debug_loc)
+
+.debug_macinfo
+ *(.debug_macinfo)
+
+.debug_weaknames
+ *(.debug_weaknames)
+
+.debug_funcnames
+ *(.debug_funcnames)
+
+.debug_typenames
+ *(.debug_typenames)
+
+.debug_varnames
+ *(.debug_varnames)
+LOAD Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o
+LOAD main.o
+LOAD startriscv.o
+LOAD Libraries/NE004xx_Driver/Source/ne004xx_uart.o
+LOAD Libraries/CMSIS/NE004/NE004PLUS/Source//system_ne004xx.o
+LOAD /home/xinhao/crosstools/gcc-arm-none-eabi-10.3-2021.10/bin/../lib/gcc/arm-none-eabi/10.3.1/../../../../arm-none-eabi/lib/libc.a
+LOAD /home/xinhao/crosstools/gcc-arm-none-eabi-10.3-2021.10/bin/../lib/gcc/arm-none-eabi/10.3.1/../../../../arm-none-eabi/lib/libm.a
+LOAD /home/xinhao/crosstools/gcc-arm-none-eabi-10.3-2021.10/bin/../lib/gcc/arm-none-eabi/10.3.1/libgcc.a
+LOAD /home/xinhao/crosstools/gcc-arm-none-eabi-10.3-2021.10/bin/../lib/gcc/arm-none-eabi/10.3.1/../../../../arm-none-eabi/lib/libnosys.a
+OUTPUT(/home/xinhao/work/ne004-plus/cortexm4/out/cortexm4.elf elf32-littlearm)
+LOAD linker stubs
+
+.debug_ranges   0x0000000000000000       0x20
+ .debug_ranges  0x0000000000000000       0x20 Libraries/CMSIS/NE004/NE004PLUS/Source/GCC//startup_ne004plus.o

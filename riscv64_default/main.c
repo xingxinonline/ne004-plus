@@ -2,7 +2,7 @@
  * @Author       : panxinhao
  * @Date         : 2023-07-05 19:08:38
  * @LastEditors  : panxinhao
- * @LastEditTime : 2024-03-28 13:19:18
+ * @LastEditTime : 2024-04-09 11:27:46
  * @FilePath     : \\ne004-plus\\riscv64_default\\main.c
  * @Description  :
  *
@@ -15,6 +15,8 @@
 #include "reg.h"
 #include "plic.h"
 #include "dma.h"
+
+#include "delay.h"
 
 #define ARM_RISCV_IPCM          0x622000F8U
 #define ARM_RISCV_IPCM_END      0x622000FCU
@@ -59,14 +61,17 @@ int main(void)
     __asm volatile("csrs mie, %0" :: "r"(0x800));
     __asm volatile("csrs mstatus, 8");
     // f.   向baud_div寄存器(addr=0x6400_0018)写入数据0x364.
-    REG16(0x64000018U) = 50000000U / 2000000;
+    REG16(0x64000018U) = 400000000U / 115200;
     // g.   向rx_ctrl寄存器(addr=0x6400_000C)写入数据0x1.
     REG8(0x6400000CU) = 0x1U;
     // h.   向tx_ctrl寄存器(addr=0x6400_0008)写入数据0x1.
     REG8(0x64000008U) = 0x1U;
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("hello ne004!\n");
-    while (1);
+    while (1)
+    {
+        printf("Hello from NE004-PLUS riscv64 core!\n");
+        delayus(1000000);
+    }
     (void)temp;
     return 0;
 }

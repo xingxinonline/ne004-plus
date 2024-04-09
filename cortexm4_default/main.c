@@ -2,7 +2,7 @@
  * @Author       : panxinhao
  * @Date         : 2023-07-25 11:04:26
  * @LastEditors  : panxinhao
- * @LastEditTime : 2024-04-09 08:42:24
+ * @LastEditTime : 2024-04-09 13:30:42
  * @FilePath     : \\ne004-plus\\cortexm4_default\\main.c
  * @Description  :
  *
@@ -23,6 +23,29 @@
 
 #define ARM_RISCV_STOP_VALUE    0x5A5A5A5AU
 
+#include <stdio.h>
+
+#define PUTCHAR_PROTOTYPE       int __io_putchar(int ch)
+
+PUTCHAR_PROTOTYPE
+{
+    while (UART_STAT(UART0) & UART_STAT_TXFL);
+    UART_DATA(UART0) = (uint8_t)ch;
+    return ch;
+}
+
+int _write(int fd, const char *buf, int nbytes)
+{
+    (void)fd;
+    for (int i = 0; i < nbytes; i++)
+    {
+        /* code */
+        __io_putchar(*buf++);
+    }
+    return nbytes;
+}
+
+void arm_delay_ms(uint32_t ms);
 void arm_delay_us(uint32_t us);
 
 int main(void)
@@ -38,7 +61,8 @@ int main(void)
     REG32(0x4000D144) = 0x0;
     REG32(0x4000D148) = 0x0;
     REG32(0x40006004) = 0xFFFFFFFF;
-    PAD_GP7_FUNCSEL  |= (0x3 << 28); // JTAG
+    PAD_GP6_FUNCSEL  |= (0x3 << 24); // riscv JTAG
+    PAD_GP7_FUNCSEL  |= (0x3 << 28); 
     PAD_GP8_FUNCSEL  |= (0x3);
     PAD_GP9_FUNCSEL  |= (0x3 << 4);
     PAD_GP10_FUNCSEL |= (0x03 << 8);
@@ -48,15 +72,20 @@ int main(void)
     PAD_GP16_FUNCSEL |= (0x2);
     UART_BAUD(UART0) = UART_BAUD_DIV & (100000000 / 115200);
     UART_CTRL(UART0) = UART_CTRL_TEN | UART_CTRL_REN;
+    /* start riscv */
+    start_riscv(1);
+
+    setvbuf(stdout, NULL, _IONBF, 0);
+    
     while (1)
     {
         /* code */
-        UART_DATA(UART0) = 0x5A;
+        printf("Hello from NE004-PLUS cortex-m4 core!\n");
         REG32(0x40006000) = 0xFFFFFFFF;
-        arm_delay_us(1000000);
+        arm_delay_ms(500);
         REG32(0x40006000) = 0x0;
-        UART_DATA(UART0) = 0xA5;
-        arm_delay_us(1000000);
+        // UART_DATA(UART0) = 0xA5;
+        arm_delay_ms(500);
     }
     (void)temp;
     return 0;
@@ -82,14 +111,17 @@ void TXOVRINT0_IRQHandler(void)
     UART_INTSTAT(UART0) |= UART_INTSTAT_TORIE;
 }
 
+void arm_delay_ms(uint32_t ms)
+{
+    arm_delay_us(1000 * ms);
+}
+
 void arm_delay_us(uint32_t us)
 {
-    volatile uint32_t i = 0, j = 10;
-    for (i = 0; i < us; i++)//18+5 = 23cycle
+    uint32_t Delay = us * 100 / 4;
+    do
     {
-        while (j)//18cycle 100/20
-        {
-            j--;
-        }
+        __NOP();
     }
+    while (Delay --);
 }

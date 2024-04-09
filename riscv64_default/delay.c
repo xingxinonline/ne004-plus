@@ -1,21 +1,22 @@
-/*** 
- * @Author       : xingxinonline
- * @Date         : 2023-03-22 14:59:44
- * @LastEditors  : xingxinonline
- * @LastEditTime : 2023-03-22 14:59:49
- * @FilePath     : \\testbench_base\\riscv64_default\\delay.c
+/*
+ * @Author       : panxinhao
+ * @Date         : 2024-03-28 11:47:06
+ * @LastEditors  : panxinhao
+ * @LastEditTime : 2024-04-09 11:32:16
+ * @FilePath     : \\ne004-plus\\riscv64_default\\delay.c
  * @Description  : 
- * @Copyright (c) 2023 by xinhao.pan@pimchip.cn, All rights reserved.
+ * 
+ * Copyright (c) 2024 by xinhao.pan@pimchip.cn, All Rights Reserved. 
  */
 
 #include "delay.h"
 
 void delayus(unsigned long dly)
 {
-    unsigned long i, j;
-    for (i = 0; i < dly; i++)
+    unsigned long Delay = dly * 400 / 4;
+    do
     {
-        for (j = 0; j < 20; j++)
-            asm("nop\nnop\nnop");
+        asm("nop\nnop");
     }
+    while (Delay --);
 }

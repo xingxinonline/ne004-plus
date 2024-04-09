@@ -73,7 +73,7 @@ depends			:= $(csrcs:%.c=%.d)
 FILEFLAGS		:= $(foreach dir, $(dirs), -I$(dir))
 FILEFLAGS		+= -I$(COM_DIR)/include			   
 
-COMFLAGS		:= -mcpu=cortex-m4 -mthumb-interwork -mthumb \
+COMFLAGS		:= -march=armv7e-m -mcpu=cortex-m4 -mthumb-interwork -mthumb \
 				-std=gnu11 \
 				-fno-common \
 				-nostartfiles \
@@ -98,8 +98,8 @@ LDFLAGS			:= $(MAPFILE) \
 
 LDLIBS			:= -lc -lm -lgcc -lnosys \
 
-LDFLAGS			+= -L$(shell dirname `$(CC) $(c_flags) -print-libgcc-file-name`) \
-				   -L$(shell dirname `$(CC) $(c_flags) -print-file-name=libc.a`) \
+LDFLAGS			+= -L$(shell dirname `$(CC) $(c_flags) -print-libgcc-file-name`)/thumb/v7e-m+dp/softfp \
+				   -L$(shell dirname `$(CC) $(c_flags) -print-file-name=libc.a`)/thumb/v7e-m+dp/softfp \
 
 # delete useless function if =1
 DEL_USELESS		?=

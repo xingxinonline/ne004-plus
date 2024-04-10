@@ -2,7 +2,7 @@
  * @Author       : panxinhao
  * @Date         : 2023-07-25 11:04:26
  * @LastEditors  : panxinhao
- * @LastEditTime : 2024-04-09 13:30:42
+ * @LastEditTime : 2024-04-10 10:26:34
  * @FilePath     : \\ne004-plus\\cortexm4_default\\main.c
  * @Description  :
  *
@@ -70,7 +70,7 @@ int main(void)
     PAD_GP14_FUNCSEL |= (0x1 << 24);
     PAD_GP15_FUNCSEL |= (0x02 << 28); // ARM UART
     PAD_GP16_FUNCSEL |= (0x2);
-    UART_BAUD(UART0) = UART_BAUD_DIV & (100000000 / 115200);
+    UART_BAUD(UART0) = UART_BAUD_DIV & (100000000 / 460800);
     UART_CTRL(UART0) = UART_CTRL_TEN | UART_CTRL_REN;
     /* start riscv */
     start_riscv(1);

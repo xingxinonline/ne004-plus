@@ -2,8 +2,8 @@
  * @Author       : panxinhao
  * @Date         : 2023-07-25 16:21:07
  * @LastEditors  : panxinhao
- * @LastEditTime : 2023-07-25 18:56:42
- * @FilePath     : \\testbench_base\\cortexm4_timer\\CMSIS\\NE004\\NE004PLUS\\Include\\system_ne004xx.h
+ * @LastEditTime : 2024-04-10 11:33:16
+ * @FilePath     : \\ne004-plus\\cortexm4_default\\Libraries\\CMSIS\\NE004\\NE004PLUS\\Include\\system_ne004xx.h
  * @Description  : 
  * @
  * @Copyright (c) 2023 by xinhao.pan@pimchip.cn, All Rights Reserved. 
@@ -50,6 +50,8 @@ extern "C" {
 
 /* system clock frequency (core clock) */
 extern uint32_t SystemCoreClock;
+extern uint32_t AHBClock;
+extern uint32_t APBClock;
 
 /* function declarations */
 /* initialize the system and update the SystemCoreClock variable */

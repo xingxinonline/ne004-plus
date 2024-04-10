@@ -2,7 +2,7 @@
  * @Author       : panxinhao
  * @Date         : 2023-07-05 19:08:38
  * @LastEditors  : panxinhao
- * @LastEditTime : 2024-04-10 10:26:53
+ * @LastEditTime : 2024-04-10 11:40:49
  * @FilePath     : \\ne004-plus\\riscv64_default\\main.c
  * @Description  :
  *
@@ -29,7 +29,6 @@ void user_interrupt_handler(void);
 
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 
-
 PUTCHAR_PROTOTYPE
 {
     while (REG8(0x64000003U) & 0x80);
@@ -50,6 +49,7 @@ int _write(int fd, char *pBuffer, int size)
 uint64_t volatile start_cycles;
 uint64_t volatile end_cycles;
 uint64_t volatile take_cycles;
+
 int main(void)
 {
     uint64_t temp = 0;
@@ -67,6 +67,7 @@ int main(void)
     // h.   向tx_ctrl寄存器(addr=0x6400_0008)写入数据0x1.
     REG8(0x64000008U) = 0x1U;
     setvbuf(stdout, NULL, _IONBF, 0);
+
     while (1)
     {
         printf("Hello from NE004-PLUS riscv64 core!\n");

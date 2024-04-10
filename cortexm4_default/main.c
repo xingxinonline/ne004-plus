@@ -2,7 +2,7 @@
  * @Author       : panxinhao
  * @Date         : 2023-07-25 11:04:26
  * @LastEditors  : panxinhao
- * @LastEditTime : 2024-04-10 10:26:34
+ * @LastEditTime : 2024-04-10 16:35:41
  * @FilePath     : \\ne004-plus\\cortexm4_default\\main.c
  * @Description  :
  *
@@ -48,10 +48,32 @@ int _write(int fd, const char *buf, int nbytes)
 void arm_delay_ms(uint32_t ms);
 void arm_delay_us(uint32_t us);
 
+volatile uint32_t  systick_cnt = 0; // must be volatile to prevent compiler optimisations
+
+void disableInterrupts() {
+    __disable_irq();
+}
+
+void enableInterrupts() {
+    __enable_irq();
+}
+
+
+void  SysTick_Handler(void)
+{
+	systick_cnt++;
+    if ((systick_cnt % 500) == 0)
+    {
+        /* code */
+        REG32(0x40006000) = ~REG32(0x40006000);
+    }
+}
+
 int main(void)
 {
     uint32_t temp = 0x0U;
     /* disable all interrupt */
+    disableInterrupts();
     REG32(0x4000D0F8U) = 0x0U;  //屏蔽riscv所有外部中断
     REG32(0x4000D0FCU) = 0x0U;  //屏蔽riscv2arm所有中断
     REG64(0x4000D174U) = 0x0U;  //屏蔽arm所有个中断
@@ -70,22 +92,31 @@ int main(void)
     PAD_GP14_FUNCSEL |= (0x1 << 24);
     PAD_GP15_FUNCSEL |= (0x02 << 28); // ARM UART
     PAD_GP16_FUNCSEL |= (0x2);
-    UART_BAUD(UART0) = UART_BAUD_DIV & (100000000 / 460800);
+    UART_BAUD(UART0) = UART_BAUD_DIV & (APBClock / 460800);
     UART_CTRL(UART0) = UART_CTRL_TEN | UART_CTRL_REN;
     /* start riscv */
     start_riscv(1);
 
     setvbuf(stdout, NULL, _IONBF, 0);
+
+    printf("Hello from NE004-PLUS cortex-m4 core!\n");
+
+    SysTick_Config(AHBClock/1000); // set tick to every 1ms
+
+    enableInterrupts();
     
     while (1)
     {
         /* code */
-        printf("Hello from NE004-PLUS cortex-m4 core!\n");
-        REG32(0x40006000) = 0xFFFFFFFF;
+        // REG32(0x40006000) = 0xFFFFFFFF;
         arm_delay_ms(500);
-        REG32(0x40006000) = 0x0;
+        // REG32(0x40006000) = ~REG32(0x40006000);
+        printf("Hello from NE004-PLUS cortex-m4 core!\n");
+        // REG32(0x40006000) = 0x0;
         // UART_DATA(UART0) = 0xA5;
         arm_delay_ms(500);
+        // REG32(0x40006000) = ~REG32(0x40006000);
+        printf("Hello from NE004-PLUS cortex-m4 core!\n");
     }
     (void)temp;
     return 0;
@@ -118,7 +149,7 @@ void arm_delay_ms(uint32_t ms)
 
 void arm_delay_us(uint32_t us)
 {
-    uint32_t Delay = us * 100 / 4;
+    uint32_t Delay = us * (APBClock / 1000000U) / 4;
     do
     {
         __NOP();

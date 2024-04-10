@@ -1,0 +1,32 @@
+#工具说明
+本工具用于将arm和riscv编译器编译的程序生成NE004芯片所支持的格式，主要用于flash镜像生成。
+包含Linux和window mac版本，带exe后缀扩展的为window版本
+功能介绍
+
+bootgen 将arm和riscv编译器编译的bin文件转换为ne004芯片支持的格式
+		bootgen 输出.bin cortexm4_app.bin riscv64_app.bin
+swapbin 交换bootgen 输出.bin文件格式，用于解决flash的bug问题，正常情况此工具不需要。
+		swapbin 输出swp.bin 输出.bin
+imagegen 将由bootgen软件生成的镜像制作成flash文件格式，用于下载使用，
+		imagegen 输出.img 输出swp.bin flash容量如(0x40000)
+		imagegen 输出.img 输出.bin flash容量如(0x40000)
+
+bin2txt 将bin文件转换为ascii表示形式,用于模拟仿真，实际芯片中不需要
+		bin2txt 输出txt.txt bin/flashswp.bin
+
+checkboot 用于检查，bootgen swapbin imagegen bin2txt 生成文件的完整性，默认通过CRC；其中bin2txt，需要再增加一个参数
+		checkboot checkfile.bin|.img
+		checkboot 输出txt.txt 1
+		
+checkimg 用于检查，bootgen swapbin imagegen 生成文件的完整性，默认通过CRC 主要用于实际芯片使用
+		checkimg checkfile.bin|.img
+
+programflash 用于生成模拟仿真的flash镜像，输入文件由bin2txt工具生成。
+			 programflash MEM.TXT 输出txt.txt
+
+tobin 暂时不需要
+opflash 暂时不需要
+
+参考见bootgen.sh脚本
+
+/home/work/share/riscv/ne004-tool/ne004-image-tool/* -> /home/work/share/ne004/demo/tool/

@@ -2,7 +2,7 @@
  * @Author       : panxinhao
  * @Date         : 2023-07-25 11:04:26
  * @LastEditors  : panxinhao
- * @LastEditTime : 2024-04-10 16:35:41
+ * @LastEditTime : 2024-07-25 17:08:57
  * @FilePath     : \\ne004-plus\\cortexm4_default\\main.c
  * @Description  :
  *
@@ -58,16 +58,42 @@ void enableInterrupts() {
     __enable_irq();
 }
 
+volatile uint8_t rx_start_flag = 0;
+volatile uint8_t rx_timeout_flag = 0;
+volatile uint32_t rx_data_last = 0;
 
 void  SysTick_Handler(void)
 {
 	systick_cnt++;
+    if (rx_start_flag)
+    {
+        /* code */
+        if ((systick_cnt - rx_data_last) >= 100)
+        {
+            /* code */
+            rx_timeout_flag = 1;
+            rx_start_flag = 0;
+        }
+    }
+    
+   
+    
     if ((systick_cnt % 500) == 0)
     {
         /* code */
         REG32(0x40006000) = ~REG32(0x40006000);
     }
 }
+
+uint8_t rxover_flag = 0;
+uint8_t txover_flag = 0;
+
+uint8_t tx_flag = 0;
+
+uint8_t rx_data_buf[128] = {0};
+volatile size_t rx_data_cnt = 0;
+
+
 
 int main(void)
 {
@@ -92,10 +118,28 @@ int main(void)
     PAD_GP14_FUNCSEL |= (0x1 << 24);
     PAD_GP15_FUNCSEL |= (0x02 << 28); // ARM UART
     PAD_GP16_FUNCSEL |= (0x2);
-    UART_BAUD(UART0) = UART_BAUD_DIV & (APBClock / 460800);
-    UART_CTRL(UART0) = UART_CTRL_TEN | UART_CTRL_REN;
+    
     /* start riscv */
     start_riscv(1);
+
+    /* enable riscv interrupt parameters */
+    // REG32(0x4000D0F8U) |= 0x1U << RISCV_ARM2RISCV_IRQ;
+    // REG32(0x4000D0F8U) |= 0x1U << RISCV_DMA1_IRQ;
+    // REG32(0x4000D0F8U) |= 0x1U << RISCV_ARM_NOTICE_IRQ;
+    /* enable arm interrupt parameters */
+    REG64(0x4000D174U) |= 1ULL << RXOVRINT0_IRQn;   //允许pdm2pcm中断
+    REG64(0x4000D174U) |= 1ULL << TXOVRINT0_IRQn; //允许riscv_notice中断
+    REG64(0x4000D174U) |= 1ULL << RXINT0_IRQn; //允许riscv_notice中断
+    REG64(0x4000D174U) |= 1ULL << TXINT0_IRQn; //允许riscv_notice中断
+    /* enable arm2riscv interrupt */
+    // REG64(0x4000D17CU) |= 1ULL << REQ_FFT_DONE_IRQn; //发送FFT中断到riscv处理
+    /* enable arm nvic irq */
+    NVIC_EnableIRQ(RXOVRINT0_IRQn);
+    NVIC_EnableIRQ(TXOVRINT0_IRQn);
+    NVIC_EnableIRQ(RXINT0_IRQn);
+    NVIC_EnableIRQ(TXINT0_IRQn);
+    UART_BAUD(UART0) = UART_BAUD_DIV & (APBClock / 9600);
+    UART_CTRL(UART0) = UART_CTRL_TEN | UART_CTRL_REN | UART_CTRL_TIE | UART_CTRL_RIE | UART_CTRL_TORIE | UART_CTRL_RORIE;
 
     setvbuf(stdout, NULL, _IONBF, 0);
 
@@ -108,15 +152,32 @@ int main(void)
     while (1)
     {
         /* code */
-        // REG32(0x40006000) = 0xFFFFFFFF;
-        arm_delay_ms(500);
-        // REG32(0x40006000) = ~REG32(0x40006000);
-        printf("Hello from NE004-PLUS cortex-m4 core!\n");
-        // REG32(0x40006000) = 0x0;
-        // UART_DATA(UART0) = 0xA5;
-        arm_delay_ms(500);
-        // REG32(0x40006000) = ~REG32(0x40006000);
-        printf("Hello from NE004-PLUS cortex-m4 core!\n");
+        // // REG32(0x40006000) = 0xFFFFFFFF;
+        // arm_delay_ms(500);
+        // // REG32(0x40006000) = ~REG32(0x40006000);
+        // printf("Hello from NE004-PLUS cortex-m4 core!\n");
+        // // REG32(0x40006000) = 0x0;
+        // // UART_DATA(UART0) = 0xA5;
+        // arm_delay_ms(500);
+        // // REG32(0x40006000) = ~REG32(0x40006000);
+        // printf("Hello from NE004-PLUS cortex-m4 core!\n");
+        // while (UART_STAT(UART0) & UART_STAT_RXFL);
+        // __io_putchar(UART_DATA(UART0));
+         
+        if (rx_timeout_flag)
+        {
+            /* code */
+            rx_timeout_flag = 0;
+            for (size_t i = 0; i < rx_data_cnt; i++)
+            {
+                /* code */
+                __io_putchar(rx_data_buf[i]);
+            }
+            rx_data_cnt = 0;
+        }
+        
+        
+        
     }
     (void)temp;
     return 0;
@@ -124,21 +185,37 @@ int main(void)
 uint32_t value = 0;
 void RXINT0_IRQHandler(void)
 {
+    if (rx_start_flag == 0)
+    {
+        /* code */
+        rx_start_flag = 1;
+    }
+    rx_data_last = systick_cnt;
+    if ((UART_STAT(UART0) & UART_STAT_RXFL) != 0)
+    {
+        /* code */
+        uint8_t temp = UART_DATA(UART0);
+        rx_data_buf[rx_data_cnt++] = temp;
+        
+    }
     UART_INTSTAT(UART0) |= UART_INTSTAT_RIE;
 }
 
 void TXINT0_IRQHandler(void)
 {
+    tx_flag = 1;
     UART_INTSTAT(UART0) |= UART_INTSTAT_TIE;
 }
 
 void RXOVRINT0_IRQHandler(void)
 {
+    rxover_flag = 1;
     UART_INTSTAT(UART0) |= UART_INTSTAT_RORIE;
 }
 
 void TXOVRINT0_IRQHandler(void)
 {
+    txover_flag = 1;
     UART_INTSTAT(UART0) |= UART_INTSTAT_TORIE;
 }
 

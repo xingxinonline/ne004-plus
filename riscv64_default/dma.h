@@ -2,7 +2,7 @@
  * @Author       : panxinhao
  * @Date         : 2023-07-04 15:53:02
  * @LastEditors  : panxinhao
- * @LastEditTime : 2023-08-25 16:58:51
+ * @LastEditTime : 2023-08-02 11:35:06
  * @FilePath     : \\testbench_base\\riscv64_default\\dma.h
  * @Description  : 
  * @
@@ -98,9 +98,9 @@
 #define DMA_CHX_INTSTATUS_DMA_TRF_DONE          BIT(1)
 #define DMA_CHX_INTSTATUS_BLOCK_TRF_DONE        BIT(0)
 
-int dma_enable(void);
-int dma_init(void);
-int dma_start_weight(uint64_t src_addr);
-int dma_start_feature(uint64_t src_addr, uint64_t dst_addr);
-
+int dma_enable(uint64_t dmax);
+int dma_init(uint64_t dmax, uint64_t chx, size_t data_size, size_t src_tr_width, size_t dst_tr_width);
+int dma_interrupt_enable(uint64_t dmax, uint64_t chx);
+int dma_interrupt_disable(uint64_t dmax, uint64_t chx);
+int dma_start(uint64_t dmax, uint64_t chx, uint64_t src_addr, uint64_t dst_addr);
 #endif // !_DMA_H_

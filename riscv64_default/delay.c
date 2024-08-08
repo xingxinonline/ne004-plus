@@ -1,9 +1,9 @@
 /*
  * @Author       : panxinhao
- * @Date         : 2024-03-28 11:47:06
+ * @Date         : 2024-04-10 18:18:28
  * @LastEditors  : panxinhao
- * @LastEditTime : 2024-04-09 11:32:16
- * @FilePath     : \\ne004-plus\\riscv64_default\\delay.c
+ * @LastEditTime : 2024-04-10 18:27:09
+ * @FilePath     : \\ne004-plus\\testbench_base\\riscv64_default\\delay.c
  * @Description  : 
  * 
  * Copyright (c) 2024 by xinhao.pan@pimchip.cn, All Rights Reserved. 

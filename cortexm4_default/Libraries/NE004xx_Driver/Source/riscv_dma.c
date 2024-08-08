@@ -2,20 +2,20 @@
  * @Author       : panxinhao
  * @Date         : 2023-03-06 18:33:49
  * @LastEditors  : panxinhao
- * @LastEditTime : 2023-08-04 19:38:44
- * @FilePath     : \\testbench_base\\riscv64_default\\dma.c
+ * @LastEditTime : 2023-08-04 20:20:45
+ * @FilePath     : \\testbench_base\\cortexm4_timer\\Libraries\\NE004xx_Driver\\Source\\riscv_dma.c
  * @Description  :
  *
  * Copyright (c) 2023 by xinhao.pan@pimchip.cn, All Rights Reserved.
  */
 
-#include "dma.h"
-int dma_enable(uint64_t dmax)
+#include "riscv_dma.h"
+int riscv_dma_enable(uint64_t dmax)
 {
     DMA_CFG(dmax) = DMA_CFG_INT_EN | DMA_CFG_EN;
     return 0;
 }
-int dma_init(uint64_t dmax, uint64_t chx, size_t data_size, size_t src_tr_width, size_t dst_tr_width)
+int riscv_dma_init(uint64_t dmax, uint64_t chx, size_t data_size, size_t src_tr_width, size_t dst_tr_width)
 {
     size_t src_result = 1, dst_result = 1, src_width = 0, dst_width = 0;
     while (src_result != src_tr_width)
@@ -49,21 +49,21 @@ int dma_init(uint64_t dmax, uint64_t chx, size_t data_size, size_t src_tr_width,
     return 0;
 }
 
-int dma_interrupt_enable(uint64_t dmax, uint64_t chx)
+int riscv_dma_interrupt_enable(uint64_t dmax, uint64_t chx)
 {
     DMA_CHX_INTSTATUS_ENABLE(dmax, chx) = 0xFFFFFFFFFFFFFFFFULL;
     DMA_CHX_INTSIGNAL_ENABLE(dmax, chx) = 0xFFFFFFFFFFFFFFFFULL;
     return 0;
 }
 
-int dma_interrupt_disable(uint64_t dmax, uint64_t chx)
+int riscv_dma_interrupt_disable(uint64_t dmax, uint64_t chx)
 {
     DMA_CHX_INTSTATUS_ENABLE(dmax, chx) = 0x0ULL;
     DMA_CHX_INTSIGNAL_ENABLE(dmax, chx) = 0x0ULL;
     return 0;
 }
 
-int dma_start(uint64_t dmax, uint64_t chx, uint64_t src_addr, uint64_t dst_addr)
+int riscv_dma_start(uint64_t dmax, uint64_t chx, uint64_t src_addr, uint64_t dst_addr)
 {
     DMA_CHX_SAR(dmax, chx) = (uint64_t)src_addr;
     DMA_CHX_DAR(dmax, chx) = (uint64_t)dst_addr;

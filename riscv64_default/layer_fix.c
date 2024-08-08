@@ -1,6 +1,10 @@
-#include <sys/stat.h>
-#include <unistd.h>
 #include <errno.h>
+#ifndef ARM_MATH_DSP
+#include <unistd.h>
+#endif
+#include "layer_fix.h"
+
+#if defined(RISCV)
 
 __attribute__((weak)) int _isatty(int fd) {
   if (fd >= STDIN_FILENO && fd <= STDERR_FILENO)
@@ -28,11 +32,13 @@ __attribute__((weak)) int _lseek(int fd, int ptr, int dir) {
 }
 
 __attribute__((weak)) int _fstat(int fd, struct stat *st) {
-  if (fd >= STDIN_FILENO && fd <= STDERR_FILENO) {
-    st->st_mode = S_IFCHR;
-    return 0;
-  }
+  // if (fd >= STDIN_FILENO && fd <= STDERR_FILENO) {
+  //   st->st_mode = S_IFCHR;
+  //   return 0;
+  // }
 
+  (void)fd;
+  (void)st;
   errno = EBADF;
   return 0;
 }
@@ -61,3 +67,5 @@ int _kill(int pid, int sig) {
   (void)sig;
   return 1;
 }
+
+#endif

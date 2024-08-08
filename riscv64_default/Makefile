@@ -53,6 +53,12 @@ READELF			= $(CROSS_COMPILE)readelf
 STR				= $(CROSS_COMPILE)strings
 
 dirs			:= . \
+				./mfcc/ \
+				./utils/ \
+				./kws/ \
+				./webrtc_vad \
+				./digital_agc \
+				# ./vad/ \
 
 
 asrcs			:= $(foreach dir, $(dirs), $(wildcard $(dir)/*.S))

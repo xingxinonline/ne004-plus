@@ -145,7 +145,7 @@ typedef enum RISCV_IRQn
     RISCV_DMA0_IRQ              = 12,
     RISCV_VCOPROC_DONE_IRQ      = 13,
     RISCV_ARM_NOTICE_IRQ        = 14,
-} RISCV_IRQn_Type;  
+} RISCV_IRQn_Type;
 
 /* includes */
 #include "core_cm4.h"
@@ -166,28 +166,154 @@ typedef enum {ERROR = 0, SUCCESS = !ERROR} ErrStatus;
 #define BITS(start, end)             ((0xFFFFFFFFUL << (start)) & (0xFFFFFFFFUL >> (31U - (uint32_t)(end))))
 #define GET_BITS(regval, start, end) (((regval) & BITS((start),(end))) >> (start))
 
-// /* main flash and SRAM memory map */
-// #define FLASH_BASE            ((uint32_t)0x08000000U)        /*!< main FLASH base address          */
-// #define SRAM_BASE             ((uint32_t)0x20000000U)        /*!< SRAM0 base address               */
+typedef struct
+{
+    /* data */
+    __IO uint32_t CON;                  /* I2C Control Register,                                                                Address offset: 0x00 */
+    __IO uint32_t TAR;                  /* I2C Target Address Register ,                                                        Address offset: 0x04 */
+    __IO uint32_t SAR;                  /* I2C Slave Address Register ,                                                         Address offset: 0x08 */
+    __IO uint32_t HS_MADDR;             /* I2C HS Master Mode Code Address Register,                                            Address offset: 0x0C */
+    __IO uint32_t DAT_CMD;              /* I2C Rx/Tx Data Buffer and Command Register,                                          Address offset: 0x10 */
+    __IO uint32_t SS_SCL_HCNT;          /* I2C Standard speed I2C Clock SCL High Count Register,                                Address offset: 0x14 */
+    __IO uint32_t SS_SCL_LCNT;          /* I2C Standard speed I2C Clock SCL Low Count Register,                                 Address offset: 0x18 */
+    __IO uint32_t FS_SCL_HCNT;          /* I2C Fast Mode and Fast Mode Plus I2C Clock SCL High Count Register,                  Address offset: 0x1C */
+    __IO uint32_t FS_SCL_LCNT;          /* I2C Fast Mode and Fast Mode Plus I2C Clock SCL Low Count Register,                   Address offset: 0x20 */
+    __IO uint32_t HS_SCL_HCNT;          /* I2C High speed I2C Clock SCL High Count Register,                                    Address offset: 0x24 */
+    __IO uint32_t HS_SCL_LCNT;          /* I2C High speed I2C Clock SCL Low Count Register,                                     Address offset: 0x28 */
+    __IO uint32_t INTR_STAT;            /* I2C Interrupt Status Register,                                                       Address offset: 0x2C */
+    __IO uint32_t INTR_MASK;            /* I2C Interrupt Mask Register,                                                         Address offset: 0x30 */
+    __IO uint32_t RAW_INTR_STAT;        /* I2C Raw Interrupt Status Register,                                                   Address offset: 0x34 */
+    __IO uint32_t RX_TL;                /* I2C Receive FIFO Threshold Register,                                                 Address offset: 0x38 */
+    __IO uint32_t TX_TL;                /* I2C Transmit FIFO Threshold Register,                                                Address offset: 0x3C */
+    __IO uint32_t CLR_INTR;             /* I2C Clear Combined and Individual Interrupts Register,                               Address offset: 0x40 */
+    __IO uint32_t CLR_RX_UNDER;         /* I2C Clear RX_UNDER Interrupt Register,                                               Address offset: 0x44 */
+    __IO uint32_t CLR_RX_OVER;          /* I2C Clear RX_OVER Interrupt Register,                                                Address offset: 0x48 */
+    __IO uint32_t CLR_TX_OVER;          /* I2C Clear TX_OVER Interrupt Register,                                                Address offset: 0x4C */
+    __IO uint32_t CLR_RD_REQ;           /* I2C Clear RD_REQ Interrupt Register,                                                 Address offset: 0x50 */
+    __IO uint32_t CLR_TX_ABRT;          /* I2C Clear TX_ABRT Interrupt Register,                                                Address offset: 0x54 */
+    __IO uint32_t CLR_RX_DONE;          /* I2C Clear RX_DONE Interrupt Register,                                                Address offset: 0x58 */
+    __IO uint32_t CLR_ACTIVITY;         /* I2C Clear ACTIVITY Interrup Register,                                                Address offset: 0x5C */
+    __IO uint32_t CLR_STOP_DET;         /* I2C Clear STOP_DET Interrupt Register,                                               Address offset: 0x60 */
+    __IO uint32_t CLR_START_DET;        /* I2C Clear START_DET Interrupt Register,                                              Address offset: 0x64 */
+    __IO uint32_t CLR_GEN_CALL;         /* I2C Clear GEN_CALL Interrupt Register,                                               Address offset: 0x68 */
+    __IO uint32_t ENABLE;               /* I2C Enable Register,                                                                 Address offset: 0x6C */
+    __IO uint32_t STATUS;               /* I2C Status Register,                                                                 Address offset: 0x70 */
+    __IO uint32_t TXFLR;                /* I2C Transmit FIFO Level Register,                                                    Address offset: 0x74 */
+    __IO uint32_t RXFLR;                /* I2C Receive FIFO Level Register,                                                     Address offset: 0x78 */
+    __IO uint32_t SDA_HOLD;             /* I2C SDA hold time length register,                                                   Address offset: 0x7C */
+    __IO uint32_t TX_ABRT_SOURCE;       /* I2C Transmit Abort Status Register,                                                  Address offset: 0x80 */
+    __IO uint32_t SLV_DATA_NACK_ONLY;   /* I2C Generate SLV_DATA_NACK Register,                                                 Address offset: 0x84 */
+    __IO uint32_t DMA_CR;               /* I2C DMA Control Register for transmit and receive handshaking interface Register,    Address offset: 0x88 */
+    __IO uint32_t DMA_TDLR;             /* I2C DMA Transmit Data Level Register,                                                Address offset: 0x8C */
+    __IO uint32_t DMA_RDLR;             /* I2C DMA Receive Data Level Register,                                                 Address offset: 0x90 */
+    __IO uint32_t SDA_SETUP;            /* I2C SDA Setup Register,                                                              Address offset: 0x94 */
+    __IO uint32_t ACK_GENERAL_CALL;     /* I2C ACK General Call Register,                                                       Address offset: 0x98 */
+    __IO uint32_t ENABLE_STATUS;        /* I2C Enable Status Register,                                                          Address offset: 0x9C */
+    __IO uint32_t FS_SPKLEN;            /* I2C ISS and FS spike suppression limit Register,                                     Address offset: 0xA0 */
+    __IO uint32_t HS_SPKLEN;            /* I2C HS spike suppression limit Register,                                             Address offset: 0xA4 */
+    __IO uint32_t CLR_RESTART_DET;      /* I2C Clear RESTART_DET Interrupt Register,                                            Address offset: 0xA8 */
+    uint32_t RESERVED0[18];             /* Reserved, 0xAC-0xF0                                                                                       */
+    __IO uint32_t COMP_PARAM_1;         /* I2C Component Parameter Register,                                                    Address offset: 0xF4 */
+    __IO uint32_t COMP_VERSION;         /* I2C Component Version ID Register,                                                   Address offset: 0xF8 */
+    __IO uint32_t COMP_TYPE;            /* I2C DesignWare Component Type Register,                                              Address offset: 0xFC */
+} I2C_TypeDef;
 
-// /* peripheral memory map */
-// #define APB1_BUS_BASE         ((uint32_t)0x40000000U)        /*!< apb1 base address                */
-// #define APB2_BUS_BASE         ((uint32_t)0x40010000U)        /*!< apb2 base address                */
-// #define AHB1_BUS_BASE         ((uint32_t)0x40020000U)        /*!< ahb1 base address                */
-// #define AHB2_BUS_BASE         ((uint32_t)0x50000000U)        /*!< ahb2 base address                */
+typedef struct
+{
+    __IO uint32_t EN;           
+    __IO uint32_t MODE;           
+    __IO uint32_t INT_MASK;           
+    __IO uint32_t INT_STU;             
+}PWM_TypeDef;
 
-// /* advanced peripheral bus 1 memory map */
-// #define TIMER_BASE            (APB1_BUS_BASE + 0x00000000U)  /*!< TIMER base address               */
-// #define RTC_BASE              (APB1_BUS_BASE + 0x00002800U)  /*!< RTC base address                 */
-// #define WWDGT_BASE            (APB1_BUS_BASE + 0x00002C00U)  /*!< WWDGT base address               */
-// #define FWDGT_BASE            (APB1_BUS_BASE + 0x00003000U)  /*!< FWDGT base address               */
-// #define I2S_ADD_BASE          (APB1_BUS_BASE + 0x00003400U)  /*!< I2S1_add base address            */
-// #define SPI_BASE              (APB1_BUS_BASE + 0x00003800U)  /*!< SPI base address                 */
-// #define USART_BASE            (APB1_BUS_BASE + 0x00004400U)  /*!< USART base address               */
-// #define I2C_BASE              (APB1_BUS_BASE + 0x00005400U)  /*!< I2C base address                 */
+typedef struct
+{
+    __IO uint32_t ONE_CYCLE_NUM;           
+    __IO uint32_t RISE_TIME;           
+    __IO uint32_t HLEVEL_NUM;
+    __IO uint32_t NUM_CYCLE;
+}PWM_CHANNEL_TypeDef;
 
-// /* advanced high performance bus 1 memory map */
-// #define GPIO_BASE             (AHB1_BUS_BASE + 0x00000000U)  /*!< GPIO base address                */
+typedef struct
+{
+    __IO uint32_t IER;                  /* I2S Enable Register,                                                                 Address offset: 0x000 */                                                            
+    __IO uint32_t IRER;                 /* I2S Receiver Block Enable Register,                                                  Address offset: 0x004 */                                                           
+    __IO uint32_t ITER;                 /* I2S Transmitter Block Enable Register,                                               Address offset: 0x008 */                                                           
+    __IO uint32_t CER;                  /* I2S Clock Enable Register,                                                           Address offset: 0x00C */                                                            
+    __IO uint32_t CCR;                  /* I2S Clock Configuration Register,                                                    Address offset: 0x010 */                                                            
+    __IO uint32_t RXFFR;                /* I2S Receiver Block FIFO Reset Register,                                              Address offset: 0x014 */                                                       
+    __IO uint32_t TXFFR;                /* I2S Transmitter Block FIFO Reset Register,                                           Address offset: 0x018 */  
+    uint32_t RESERVED0;                 /* Reserved, 0x01C */                                                        
+    __IO uint32_t LRBR_LTHR_0;          /* I2S Left Receive Buffer 0 Register/Left Transmit Holding Register 0,                 Address offset: 0x020 */                                                 
+    __IO uint32_t RRBR_RTHR_0;          /* I2S Right Receive Buffer 0 Register/Right Transmit Holding Register 0,               Address offset: 0x024 */                                                       
+    __IO uint32_t RER0;                 /* I2S Receive Enable Register 0,                                                       Address offset: 0x028 */                                                       
+    __IO uint32_t TER0;                 /* I2S Transmit Enable Register 0,                                                      Address offset: 0x02C */                                                       
+    __IO uint32_t RCR0;                 /* I2S Receive Configuration Register 0,                                                Address offset: 0x030 */                                                       
+    __IO uint32_t TCR0;                 /* I2S Transmit Configuration Register 0,                                               Address offset: 0x034 */                                                       
+    __IO uint32_t ISR0;                 /* I2S Interrupt status Register 0,                                                     Address offset: 0x038 */                                                       
+    __IO uint32_t IMR0;                 /* I2S Interrupt Mask Register 0,                                                       Address offset: 0x03C */                                                       
+    __IO uint32_t ROR0;                 /* I2S Receive Overrun Register 0,                                                      Address offset: 0x040 */                                                       
+    __IO uint32_t TOR0;                 /* I2S Transmit Overrun Register 0,                                                     Address offset: 0x044 */                                                       
+    __IO uint32_t RFCR0;                /* I2S Receive FIFO Configuration Register 0,                                           Address offset: 0x048 */                                                       
+    __IO uint32_t TFCR0;                /* I2S Transmit FIFO Configuration Register 0,                                          Address offset: 0x04C */                                                       
+    __IO uint32_t RFF0;                 /* I2S Receive FIFO Flush Register 0,                                                   Address offset: 0x050 */                                                       
+    __IO uint32_t TFF0;                 /* I2S Transmit FIFO Flush Register 0,                                                  Address offset: 0x054 */ 
+    uint32_t RESERVED1[2];              /* Reserved, 0x058-0x05C */                                                                     
+    __IO uint32_t LRBR_LTHR_1;          /* I2S Left Receive Buffer 0 Register/Left Transmit Holding Register 0,                 Address offset: 0x060 */                                                                                       
+    __IO uint32_t RRBR_RTHR_1;          /* I2S Right Receive Buffer 0 Register/Right Transmit Holding Register 0,               Address offset: 0x064 */                                                                                           
+    __IO uint32_t RER1;                 /* I2S Receive Enable Register 0,                                                       Address offset: 0x068 */                                                                                                              
+    __IO uint32_t TER1;                 /* I2S Transmit Enable Register 0,                                                      Address offset: 0x06C */                                                                                                              
+    __IO uint32_t RCR1;                 /* I2S Receive Configuration Register 0,                                                Address offset: 0x070 */                                                                                                              
+    __IO uint32_t TCR1;                 /* I2S Transmit Configuration Register 0,                                               Address offset: 0x074 */                                                                                                              
+    __IO uint32_t ISR1;                 /* I2S Interrupt status Register 0,                                                     Address offset: 0x078 */                                                                                                              
+    __IO uint32_t IMR1;                 /* I2S Interrupt Mask Register 0,                                                       Address offset: 0x07C */                                                                                                              
+    __IO uint32_t ROR1;                 /* I2S Receive Overrun Register 0,                                                      Address offset: 0x080 */                                                                                                              
+    __IO uint32_t TOR1;                 /* I2S Transmit Overrun Register 0,                                                     Address offset: 0x084 */                                                                                                              
+    __IO uint32_t RFCR1;                /* I2S Receive FIFO Configuration Register 0,                                           Address offset: 0x088 */                                                                                                              
+    __IO uint32_t TFCR1;                /* I2S Transmit FIFO Configuration Register 0,                                          Address offset: 0x08C */                                                                                                              
+    __IO uint32_t RFF1;                 /* I2S Receive FIFO Flush Register 0,                                                   Address offset: 0x090 */                                                                                                              
+    __IO uint32_t TFF1;                 /* I2S Transmit FIFO Flush Register 0,                                                  Address offset: 0x094 */  
+    uint32_t RESERVED2[2];              /* Reserved, 0x098-0x09C */                                                                      
+    __IO uint32_t LRBR_LTHR_2;          /* I2S Left Receive Buffer 0 Register/Left Transmit Holding Register 0,                 Address offset: 0x0A0 */                                                                          
+    __IO uint32_t RRBR_RTHR_2;          /* I2S Right Receive Buffer 0 Register/Right Transmit Holding Register 0,               Address offset: 0x0A4 */                                                                              
+    __IO uint32_t RER2;                 /* I2S Receive Enable Register 0,                                                       Address offset: 0x0A8 */                                                                                                 
+    __IO uint32_t TER2;                 /* I2S Transmit Enable Register 0,                                                      Address offset: 0x0AC */                                                                                                 
+    __IO uint32_t RCR2;                 /* I2S Receive Configuration Register 0,                                                Address offset: 0x0B0 */                                                                                                 
+    __IO uint32_t TCR2;                 /* I2S Transmit Configuration Register 0,                                               Address offset: 0x0B4 */                                                                                                 
+    __IO uint32_t ISR2;                 /* I2S Interrupt status Register 0,                                                     Address offset: 0x0B8 */                                                                                                 
+    __IO uint32_t IMR2;                 /* I2S Interrupt Mask Register 0,                                                       Address offset: 0x0BC */                                                                                                 
+    __IO uint32_t ROR2;                 /* I2S Receive Overrun Register 0,                                                      Address offset: 0x0C0 */                                                                                                 
+    __IO uint32_t TOR2;                 /* I2S Transmit Overrun Register 0,                                                     Address offset: 0x0C4 */                                                                                                 
+    __IO uint32_t RFCR2;                /* I2S Receive FIFO Configuration Register 0,                                           Address offset: 0x0C8 */                                                                                                 
+    __IO uint32_t TFCR2;                /* I2S Transmit FIFO Configuration Register 0,                                          Address offset: 0x0CC */                                                                                                 
+    __IO uint32_t RFF2;                 /* I2S Receive FIFO Flush Register 0,                                                   Address offset: 0x0D0 */                                                                                                 
+    __IO uint32_t TFF2;                 /* I2S Transmit FIFO Flush Register 0,                                                  Address offset: 0x0D4 */ 
+    uint32_t RESERVED3[2];              /* Reserved, 0x0D8-0x0DC */                                                                     
+    __IO uint32_t LRBR_LTHR_3;          /* I2S Left Receive Buffer 0 Register/Left Transmit Holding Register 0,                 Address offset: 0x0E0 */                                                                                 
+    __IO uint32_t RRBR_RTHR_3;          /* I2S Right Receive Buffer 0 Register/Right Transmit Holding Register 0,               Address offset: 0x0E4 */                                                                                     
+    __IO uint32_t RER3;                 /* I2S Receive Enable Register 0,                                                       Address offset: 0x0E8 */                                                                                                        
+    __IO uint32_t TER3;                 /* I2S Transmit Enable Register 0,                                                      Address offset: 0x0EC */                                                                                                        
+    __IO uint32_t RCR3;                 /* I2S Receive Configuration Register 0,                                                Address offset: 0x0F0 */                                                                                                        
+    __IO uint32_t TCR3;                 /* I2S Transmit Configuration Register 0,                                               Address offset: 0x0F4 */                                                                                                        
+    __IO uint32_t ISR3;                 /* I2S Interrupt status Register 0,                                                     Address offset: 0x0F8 */                                                                                                        
+    __IO uint32_t IMR3;                 /* I2S Interrupt Mask Register 0,                                                       Address offset: 0x0FC */                                                                                                        
+    __IO uint32_t ROR3;                 /* I2S Receive Overrun Register 0,                                                      Address offset: 0x100 */                                                                                                        
+    __IO uint32_t TOR3;                 /* I2S Transmit Overrun Register 0,                                                     Address offset: 0x104 */                                                                                                        
+    __IO uint32_t RFCR3;                /* I2S Receive FIFO Configuration Register 0,                                           Address offset: 0x108 */                                                                                                        
+    __IO uint32_t TFCR3;                /* I2S Transmit FIFO Configuration Register 0,                                          Address offset: 0x10C */                                                                                                        
+    __IO uint32_t RFF3;                 /* I2S Receive FIFO Flush Register 0,                                                   Address offset: 0x110 */                                                                                                        
+    __IO uint32_t TFF3;                 /* I2S Transmit FIFO Flush Register 0,                                                  Address offset: 0x114 */ 
+    uint32_t RESERVED4[2];              /* Reserved, 0x118-0x11C */                                                                                                                  
+    uint32_t RESERVED5[40];             /* Reserved, 0x120-0x1BC */                                                                                                                  
+    __IO uint32_t RXDMA;                /* I2S Receiver Block DMA Register,                                                     Address offset: 0x1C0 */ 
+    __IO uint32_t RRXDMA;               /* I2S Reset Receiver Block DMA Register,                                               Address offset: 0x1C4 */ 
+    __IO uint32_t TXDMA;                /* I2S Transmitter Block DMA Register,                                                  Address offset: 0x1C8 */ 
+    __IO uint32_t RTXDMA;               /* I2S Transmitter Block DMA Register,                                                  Address offset: 0x1CC */ 
+    __IO uint32_t COMP_PARAM2;          /* I2S Component Parameter Register 2,                                                  Address offset: 0x1F0 */ 
+    __IO uint32_t COMP_PARAM1;          /* I2S Component Parameter Register 1,                                                  Address offset: 0x1F4 */ 
+    __IO uint32_t COMP_VERSION;         /* I2S Component Version Register,                                                      Address offset: 0x1F8 */ 
+    __IO uint32_t COMP_TYPE;            /* I2S Component Type Register,                                                         Address offset: 0x1FC */ 
+} I2S_TypeDef;
 
 /* option byte and debug memory map */
 #define OB_BASE               ((uint32_t)0x1FFEC000U)        /*!< OB base address                  */
@@ -203,7 +329,7 @@ typedef enum {ERROR = 0, SUCCESS = !ERROR} ErrStatus;
 #define PDM_WIDTH                       REG32(0x4000D100U)
 #define PDM_LINE_CLR                    REG32(0x4000D104U)
 #define LCD_DRV_ADDR                    REG32(0x4000D10CU)
-#define PSRAM_XIP_ADDR                  REG32(0x4000D110U)
+#define PSRAM_XIP_ADDR                  REG32(0x4000D114U)
 #define REG_XIP                         REG32(0x4000D118U)
 #define CHIP_MODE                       REG32(0x4000D200U) // 芯片启动模式，3-5bit 见BOOTMODE
 #define RISC_EN                         REG32(0x4000D00CU) // bit6 RISCV启动寄存器，ARM可访问，由ARM控制RISC启动，
@@ -230,8 +356,6 @@ typedef enum {ERROR = 0, SUCCESS = !ERROR} ErrStatus;
 #define GPIO0_DR                        REG32(0x40006000U)
 #define GPIO0_DDR                       REG32(0x40006004U)
 
-
-
 #define IPCM_ADDR                       REG32(0x62200004U)
 #define ARM_EN_RISCV_RAM                REG32(0x62200004U) // [0] , params_enable_arm_256kb ARM 可以操作RISC v的ram
 #define ARM_SET_RISCV_RAM_BASE          REG32(0x62200008U) // [12:0],256KB SRAM高位地址寄存器[17:5] ARM 可以操作RISC v的ram 高端地址
@@ -240,6 +364,20 @@ typedef enum {ERROR = 0, SUCCESS = !ERROR} ErrStatus;
 
 #define SPI_BASE                        ((uint32_t)0x10000000U)
 #define OSPI_BASE                       ((uint32_t)0x21000000U)
+#define I2C0_BASE                       ((uint32_t)0x40000000U)
+#define I2C1_BASE                       ((uint32_t)0x40001000U)
+#define SPI0_BASE                       ((uint32_t)0x40002000U)
+#define PWM0_BASE                       ((uint32_t)0x40003000U)
+#define PWM0_CH1_BASE                   (PWM0_BASE + 0x10)    
+#define PWM0_CH2_BASE                   (PWM0_BASE + 0x20)    
+#define PWM0_CH3_BASE                   (PWM0_BASE + 0x30)    
+#define I2S0_BASE                       ((uint32_t)0x40004000U)
+#define I2S1_BASE                       ((uint32_t)0x40005000U)
+#define GPIO0_BASE                      ((uint32_t)0x40006000U)
+#define PWM1_BASE                       ((uint32_t)0x40007000U)
+#define PWM1_CH1_BASE                   (PWM1_BASE + 0x10)    
+#define PWM1_CH2_BASE                   (PWM1_BASE + 0x20)    
+#define PWM1_CH3_BASE                   (PWM1_BASE + 0x30) 
 #define UART_BASE                       ((uint32_t)0x40008000U)
 #define GPIO_BASE                       ((uint32_t)0x40009000U)
 #define WDG_BASE                        ((uint32_t)0x4000A000U)
@@ -247,10 +385,18 @@ typedef enum {ERROR = 0, SUCCESS = !ERROR} ErrStatus;
 #define TIMER_BASE                      ((uint32_t)0x4000C000U)
 #define DMAC_BASE                       ((uint32_t)0x4000E000U)
 
-
-//interrupt control
-#define ALL_ISR_ENABLE                  ((uint32_t)0x00000001U)
-#define ALL_ISR_DISABLE                 ((uint32_t)0x00000000U)
+// #define I2C0                            ((I2C_TypeDef *)I2C0_BASE)
+// #define I2C1                            ((I2C_TypeDef *)I2C1_BASE)
+// #define PWM0                            ((PWM_TypeDef *)PWM0_BASE)  
+// #define PWM0_CH1                        ((PWM_CHANNEL_TypeDef *)PWM0_CH1_BASE)  
+// #define PWM0_CH2                        ((PWM_CHANNEL_TypeDef *)PWM0_CH2_BASE)  
+// #define PWM0_CH3                        ((PWM_CHANNEL_TypeDef *)PWM0_CH3_BASE)  
+// #define I2S0                            ((I2S_TypeDef *)I2S0_BASE)
+// #define I2S1                            ((I2S_TypeDef *)I2S1_BASE)
+// #define PWM1                            ((PWM_TypeDef *)PWM1_BASE)  
+// #define PWM1_CH1                        ((PWM_CHANNEL_TypeDef *)PWM1_CH1_BASE)  
+// #define PWM1_CH2                        ((PWM_CHANNEL_TypeDef *)PWM1_CH2_BASE)  
+// #define PWM1_CH3                        ((PWM_CHANNEL_TypeDef *)PWM1_CH3_BASE)  
 
 #ifdef __cplusplus
 }

@@ -2,7 +2,7 @@
  * @Author       : panxinhao
  * @Date         : 2023-06-13 15:53:38
  * @LastEditors  : panxinhao
- * @LastEditTime : 2023-07-21 15:24:00
+ * @LastEditTime : 2023-08-04 19:39:32
  * @FilePath     : \\testbench_base\\riscv64_default\\plic.c
  * @Description  : 
  * 
@@ -39,7 +39,7 @@ void plic_init(void)
      * effective priority.
      */
     *(uint32_t *)PLIC_PRIORITY(ARM2RISCV_IRQ) = 1; // 0xC000004 = 1 
-    *(uint32_t *)PLIC_PRIORITY(DMA1_IRQ) = 1; // 0xC000030 = 1 
+    // *(uint32_t *)PLIC_PRIORITY(DMA1_IRQ) = 1; // 0xC000030 = 1 
     *(uint32_t *)PLIC_PRIORITY(ARM_NOTICE_IRQ) = 1; // 0xC00003C = 1 
     /*
      * Enable DMA1

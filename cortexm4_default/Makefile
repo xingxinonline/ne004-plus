@@ -1,265 +1,83 @@
-Q				?= @
-ARCH			?= armv7-m
-ABI				?= 
+# 工程名称和目录定义
+PROJECT_NAME := ne004-plus
+BUILD_DIR := build
+LIBRARIES_DIR := Libraries
+CMSIS_DIR := $(LIBRARIES_DIR)/CMSIS
+NE004_DRIVER_DIR := $(LIBRARIES_DIR)/NE004xx_Driver
 
-ROOT_DIR		=$(shell pwd)
-LIB_SRC			:=cortexm4_common
-COM_DIR			=$(ROOT_DIR)/../cortexm4_common
-QEMUPATH		?=/home/work/riscv64/tool/qemu/bin
-LDFILEPATH		?= ./Libraries/CMSIS/NE004/NE004PLUS/Source/GCC/
-CPUDIRS			:= $(COM_DIR)/cpu
-BOOTDIRS		:= $(COM_DIR)/boot
-SUBDIRS			:= $(CPUDIRS) 
-BUILDDIR		:= $(ROOT_DIR)/build
-OUTDIR			:= $(ROOT_DIR)/out
-CPYDIR			= bin/$(shell pwd | sed 's/^\(.*\)[/]//' )/
+# 工具链路径配置（可以在命令行中覆盖）
+TOOLCHAIN_PATH ?= /home/xinhao/work/tflite-micro/tensorflow/lite/micro/tools/make/downloads/gcc_embedded/bin
 
-OUTBIN			?= $(OUTDIR)/$(shell pwd | sed 's/^\(.*\)[/]//' )
+# 编译工具链设置
+CC := $(TOOLCHAIN_PATH)/arm-none-eabi-gcc
+CXX := $(TOOLCHAIN_PATH)/arm-none-eabi-g++
+AS := $(TOOLCHAIN_PATH)/arm-none-eabi-as
+LD := $(TOOLCHAIN_PATH)/arm-none-eabi-ld
+OBJCOPY := $(TOOLCHAIN_PATH)/arm-none-eabi-objcopy
+OBJDUMP := $(TOOLCHAIN_PATH)/arm-none-eabi-objdump
+SIZE := $(TOOLCHAIN_PATH)/arm-none-eabi-size
 
-ifeq ("$(shell uname -n)","raspberrypi")
-ip ?=$(shell hostname -I | cut -c 1-10)
+# 目标架构设置
+CPU := -mcpu=cortex-m4
+FPU := -mfpu=fpv4-sp-d16
+FLOAT-ABI := -mfloat-abi=softfp
+MCU := $(CPU) -mthumb $(FPU) $(FLOAT-ABI)
 
-ifeq ("${ip}","192.168.50")
-ENCPY			?= 1
-else
-ENCPY			?= 0
-endif
+# 编译选项
+CFLAGS := $(MCU) -g -Wall -Wextra -O2 -fdata-sections -ffunction-sections -MMD -MP
+CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions
+ASFLAGS := $(MCU) -g -x assembler-with-cpp
+LDFLAGS := $(MCU) -Wl,--gc-sections -Wl,-Map=$(BUILD_DIR)/$(PROJECT_NAME).map -T$(CMSIS_DIR)/NE004/NE004PLUS/Source/GCC/link.ld
 
-CROSS_COMPILE	?= $(CROSS_ARM_PATH)arm-none-eabi-
-else
-ifeq ("$(shell whoami)","jzh")
-ENCPY			?= 1
-else
-ENCPY			?= 0
-endif
-CROSS_COMPILE	?= $(CROSS_ARM_PATH)arm-none-eabi-
-endif
+# 包含路径
+INCLUDES := \
+	-I. \
+	-I$(CMSIS_DIR)/NE004/NE004PLUS/Include \
+	-I$(CMSIS_DIR) \
+	-I$(NE004_DRIVER_DIR)/Include
 
-BINDIR			?=$(ROOT_DIR)/../bin/$(shell pwd | sed 's/^\(.*\)[/]//' )/
-MKBINDIR		?= $(shell if [ ! -d $(BINDIR) ]; then mkdir -p $(BINDIR); else rm -rf $(BINDIR); fi)
+# 源文件和对象文件
+C_SOURCES := \
+	hal_init.c \
+	$(NE004_DRIVER_DIR)/Source/ne004xx_uart.c \
+	$(CMSIS_DIR)/NE004/NE004PLUS/Source/system_ne004xx.c \
+	syscall.c
 
-# Make variables (CC, etc...)
-AS				= $(CROSS_COMPILE)as
-LD				= $(CROSS_COMPILE)ld
-CC				= $(CROSS_COMPILE)gcc
-CPP				= $(CC) -E
-AR				= $(CROSS_COMPILE)ar
-NM				= $(CROSS_COMPILE)nm
-STRIP			= $(CROSS_COMPILE)strip
-OBJCOPY			= $(CROSS_COMPILE)objcopy
-OBJDUMP			= $(CROSS_COMPILE)objdump
-RANLIB 			= $(CROSS_COMPILE)RANLIB
-SIZE			= $(CROSS_COMPILE)size
-GDB				= $(CROSS_COMPILE)gdb
-READELF			= $(CROSS_COMPILE)readelf
-STR				= $(CROSS_COMPILE)strings
+CXX_SOURCES := main.cpp
 
-dirs			:= . \
-				./Libraries/NE004xx_Driver/ \
-				./Libraries/NE004xx_Driver/Source \
-				./Libraries/NE004xx_Driver/Include \
-				./Libraries/CMSIS \
-				./Libraries/CMSIS/NE004/NE004PLUS/ \
-				./Libraries/CMSIS/NE004/NE004PLUS/Source/ \
-				./Libraries/CMSIS/NE004/NE004PLUS/Include/ \
-				./Libraries/CMSIS/NE004/NE004PLUS/Source/GCC/ \
+ASM_SOURCES := \
+	$(CMSIS_DIR)/NE004/NE004PLUS/Source/GCC/startup_ne004plus.S
 
+OBJECTS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(C_SOURCES)) \
+		   $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(CXX_SOURCES)) \
+		   $(patsubst %.S,$(BUILD_DIR)/%.o,$(ASM_SOURCES))
 
+# 默认目标
+all: $(BUILD_DIR) $(BUILD_DIR)/$(PROJECT_NAME).elf
 
-asrcs			:= $(foreach dir, $(dirs), $(wildcard $(dir)/*.S))
-csrcs			:= $(foreach dir, $(dirs), $(wildcard $(dir)/*.c))
-depends			:= $(csrcs:%.c=%.d)
+# 创建 build 目录的规则
+$(BUILD_DIR):
+	@mkdir -p $@
 
-FILEFLAGS		:= $(foreach dir, $(dirs), -I$(dir))
-FILEFLAGS		+= -I$(COM_DIR)/include			   
+$(BUILD_DIR)/$(PROJECT_NAME).elf: $(OBJECTS)
+	$(CXX) $(OBJECTS) $(LDFLAGS) -o $@
+	$(OBJCOPY) -O binary $@ $(BUILD_DIR)/$(PROJECT_NAME).bin
+	$(SIZE) $@
 
-COMFLAGS		:= -march=armv7e-m -mcpu=cortex-m4 -mthumb-interwork -mthumb \
-				-std=gnu11 \
-				-fno-common \
-				-nostartfiles \
-				-nodefaultlibs \
-				-nolibc \
-				-nostdlib
+$(BUILD_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-# COMFLAGS		+= -march=$(ARCH)
-ifeq ($(_ARM_DEBUG),1)
-COMFLAGS		+= -O0
-COMFLAGS		+= -g -ggdb
-endif
-COMFLAGS		+= -W -Wall
+$(BUILD_DIR)/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-ASFLAGS			:= $(COMFLAGS) 
-CFLAGS			:= $(COMFLAGS)
-CFLAGS			+= $(FILEFLAGS)
-
-MAPFILE 		:= -Map $(OUTBIN).map
-LDFLAGS			:= $(MAPFILE) \
-				-static -nostdlib \
-
-LDLIBS			:= -lc -lm -lgcc -lnosys \
-
-LDFLAGS			+= -L$(shell dirname `$(CC) $(c_flags) -print-libgcc-file-name`)/thumb/v7e-m+dp/softfp \
-				   -L$(shell dirname `$(CC) $(c_flags) -print-file-name=libc.a`)/thumb/v7e-m+dp/softfp \
-
-# delete useless function if =1
-DEL_USELESS		?=
-ifeq ($(DEL_USELESS),1)
-COMFLAGS		+= -ffunction-sections -fdata-sections
-LDFLAGS			+= --gc-sections
-else
-endif
-
-# debug for qemu if =1
-QEMU_DEBUG		?=
-ifeq ($(QEMU_DEBUG),1)
-LDFILE			:= $(LDFILEPATH)/debug.ld
-else
-LDFILE			:= $(LDFILEPATH)/link.ld
-endif
-
-
-# find .h file from .c
-#depends			:= $(sort $(filter %.h, $(shell $(CC) $(FILEFLAGS) -MM $(csrcs))))
-
-objects			:=
-obj				:=
-
-objects			+= $(patsubst %.S,%.o,$(asrcs)) \
-				   $(patsubst %.c,%.o,$(csrcs))
-
-obj				+= 
-
-rmobjs			:= \
-				$(patsubst %.c,%.i,$(csrcs)) \
-				$(patsubst %.c,%.s,$(csrcs)) \
-				$(patsubst %.c,%.d,$(csrcs))
-
-
-export ROOT_DIR QEMUPATH LDFILEPATH CPUDIRS SUBDIRS BOOTDIRS OUTBIN
-export ARCH ABI CROSS_COMPILE CFLAGS ASFLAGS LDFLAGS LDLIBS
-export AS LD CC CPP AR NM STRIP OBJCOPY OBJDUMP RANLIB SIZE GDB READELF STR
-export MAKE Q obj objects
-
-all: $(OUTBIN).elf $(OUTBIN).bin $(OUTBIN).dis $(OUTBIN).entrypoint genflashbin cpy
-
-$(OUTBIN).elf: $(objects) $(obj) #$(LDLIBS)
-	$(Q)echo [LD ]		$(notdir $@)
-	$(Q)echo [MAP]		$(notdir $(OUTBIN).map)
-	$(Q)$(shell if [ ! -d $(OUTDIR) ]; then mkdir -p $(OUTDIR); fi)
-	$(Q)$(LD) -T$(LDFILE) $(LDFLAGS) -o $@ $^ $(LDLIBS)
-
-$(OUTBIN).entrypoint: $(OUTBIN).elf
-	$(Q)echo [EP ]		$(notdir $@)
-	$(Q)$(READELF) -h $^ | grep "Entry point address:" | sed 's/ //g'|cut -d':' -f2 | tr -cd "[0-9a-fA-FxX]" > $@
-
-$(OUTBIN).bin: $(OUTBIN).elf
-	$(Q)echo [BIN]		$(notdir $@)
-	$(Q)$(OBJCOPY) -O binary $< $@
-
-$(OUTBIN).dua: $(OUTBIN).bin
-	$(Q)echo [HW ]		$(notdir $@)
-	$(Q)od -t x4 -An -w4 -v $< > $@
-
-$(OUTBIN).hex: $(OUTBIN).elf
-	$(Q)echo [HEX]		$(notdir $@)
-	$(Q)$(OBJCOPY) -O ihex $< $@
-
-$(OUTBIN).dis: $(OUTBIN).elf
-	$(Q)echo [DIS]		$(notdir $@)
-	$(Q)$(OBJDUMP) -D $< > $@
-
-$(OUTBIN).all.dis: $(OUTBIN).elf
-	$(Q)echo [DIS]		$(notdir $@)
-	$(Q)$(OBJDUMP) -D -S $< > $@
-
-genflashbin:
-	$(Q)../tool/bootgen_own$(WIN_EXT).sh $(OUTBIN) $(ROOT_DIR)/../riscv64_default/out/riscv64_default
-
-inf:
-	$(Q)$(SIZE) -G -d $(OUTBIN).elf
-
-cpy:
-	$(Q)echo [CPY]		'->' $(BINDIR)
-	$(Q)$(MKBINDIR)
-	$(Q)cp -a out $(BINDIR)
-
-$(SUBDIRS):
-	$(Q)echo $@
-	$(MAKE) -C $@
-	$(Q)echo $(objects)
-
-%.d:%.c
-	$(Q)echo [DEP]		$(notdir $<)
-	$(Q)set -e; rm -f $@; \
-	echo $@ $(dir $@)$(shell $(CC) $(FILEFLAGS) -MM $<) > $@;
-#	$(Q)echo $(sort $(filter %.h, $(shell $(CC) $(FILEFLAGS) -MM $<))) > $@
-
-#-include $(depends)
-#  %.d $(file < %.d)
-# $(sort $(filter %.h, $(file < $*.d)))
-%.o:%.c
-	$(Q)echo [CC ]		$(notdir $<)
-	$(Q)$(CC) $(CFLAGS) -c $< -o $@
-#	$(Q)$(CC) $(CFLAGS) -E $< -o $*.i
-#	$(Q)$(CC) $(CFLAGS) -S $*.i -o $*.s
-#	$(Q)$(CC) $(CFLAGS) -c $*.s -o $@
-
-# %.i:%.c
-# 	$(Q)echo [CC]		$(notdir $@)
-# 	$(Q)$(CC) $(CFLAGS) -E $< -o $@
-
-# %.s:%.i
-# 	$(Q)echo [CC]		$(notdir $@)
-# 	$(Q)$(CC) $(CFLAGS) -S $< -o $@
-
-# %.o:%.s
-# 	$(Q)echo [CC]		$(notdir $@)
-# 	$(Q)$(CC) $(CFLAGS) -c $< -o $@
-
-%.o:%.S
-	$(Q)echo [AS ]		$(notdir $<)
-	$(Q)$(CC) $(ASFLAGS) -c $< -o $@
-
-
-.PHONY: all clean distclean run debug debugasm
+$(BUILD_DIR)/%.o: %.S
+	@mkdir -p $(dir $@)
+	$(CC) $(ASFLAGS) $(INCLUDES) -c $< -o $@
 
 clean:
-	$(Q)-rm -rf $(objects) $(obj) $(rmobjs)
+	rm -rf $(BUILD_DIR)
 
-distclean: clean
-	$(Q)-rm -rf $(OUTBIN)*.*
-
-run:
-	$(QEMUPATH)/qemu-system-arm -machine lm3s811evb -cpu cortex-m4 -m 512K -semihosting -kernel $(outbin).elf -S -gdb tcp::7890
-#	# $(QEMUPATH)/qemu-system-riscv64 -machine virt -cpu rv64 -m 256K -semihosting -kernel $(OUTBIN).elf  -bios none -serial stdio -display none -S -gdb tcp::7890
-	$(Q)$(shell pkill qemu*)
-
-debug:
-	$(Q)$(shell pkill qemu*)
-	$(Q)$(MAKE) run &
-	$(GDB) $(OUTBIN).elf -w -ex 'target remote localhost:7890' -ex 'info source' -ex 'layout src' -ex 'layout regs' -ex 'b reset' \
-	-ex 'c' -ex 'si'
-	$(Q)echo "debug done"
-	$(Q)$(shell pkill qemu*)
-
-debugasm:
-	$(Q)$(shell pkill qemu*)
-	$(Q)$(MAKE) run &
-	$(GDB) $(OUTBIN).elf -w -ex 'target remote localhost:7890' -ex 'info source' -ex 'layout asm' -ex 'layout regs' -ex 'b reset' \
-	-ex 'c' # -ex 'b main' -ex 'c'
-	$(Q)echo "debug done"
-	$(Q)$(shell pkill qemu*)
-
-
-cssh:
-	ssh-keygen -t rsa -P "" -f ~/.ssh/id_rsa
-	ifdef iptarget
-	ssh-copy-id -i ~/.ssh/id_rsa.pub $(iptarget)
-	endif
-
-test:
-#	$(Q)echo $(csrcs)
-#	$(Q)echo $(asrcs)
-#	$(Q)echo $(FILEFLAGS)
-#	$(Q)echo $(depends)	
-	$(Q)echo $(CROSS_COMPILE)
+# 包含依赖文件
+-include $(wildcard $(BUILD_DIR)/*.d)

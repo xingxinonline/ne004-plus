@@ -1,9 +1,9 @@
 /*
  * @Author       : panxinhao
  * @Date         : 2023-07-25 11:04:26
- * @LastEditors  : panxinhao
- * @LastEditTime : 2024-07-25 17:08:57
- * @FilePath     : \\ne004-plus\\cortexm4_default\\main.c
+ * @LastEditors  : xingxinonline
+ * @LastEditTime : 2024-08-22 15:35:35
+ * @FilePath     : \\ne004-plus\\cortexm4_default\\hal_init.c
  * @Description  :
  *
  * Copyright (c) 2023 by xinhao.pan@pimchip.cn, All Rights Reserved.
@@ -14,7 +14,6 @@
 #include <stdlib.h>
 
 #include "ne004xx.h"
-#include "startriscv.h"
 
 #include "ne004xx_uart.h"
 
@@ -93,11 +92,12 @@ uint8_t tx_flag = 0;
 uint8_t rx_data_buf[128] = {0};
 volatile size_t rx_data_cnt = 0;
 
-
-
-int main(void)
+int hal_init(void)
 {
     uint32_t temp = 0x0U;
+    /* disable pdm */
+    REG32(0x4000D08CU) = 0x0U;
+    REG32(0x4000D05CU) = 0x2U;
     /* disable all interrupt */
     disableInterrupts();
     REG32(0x4000D0F8U) = 0x0U;  //屏蔽riscv所有外部中断
@@ -118,9 +118,7 @@ int main(void)
     PAD_GP14_FUNCSEL |= (0x1 << 24);
     PAD_GP15_FUNCSEL |= (0x02 << 28); // ARM UART
     PAD_GP16_FUNCSEL |= (0x2);
-    
-    /* start riscv */
-    start_riscv(1);
+
 
     /* enable riscv interrupt parameters */
     // REG32(0x4000D0F8U) |= 0x1U << RISCV_ARM2RISCV_IRQ;
@@ -145,40 +143,40 @@ int main(void)
 
     printf("Hello from NE004-PLUS cortex-m4 core!\n");
 
-    SysTick_Config(AHBClock/1000); // set tick to every 1ms
+    // SysTick_Config(AHBClock/1000); // set tick to every 1ms
 
-    enableInterrupts();
+    // enableInterrupts();
     
-    while (1)
-    {
-        /* code */
-        // // REG32(0x40006000) = 0xFFFFFFFF;
-        // arm_delay_ms(500);
-        // // REG32(0x40006000) = ~REG32(0x40006000);
-        // printf("Hello from NE004-PLUS cortex-m4 core!\n");
-        // // REG32(0x40006000) = 0x0;
-        // // UART_DATA(UART0) = 0xA5;
-        // arm_delay_ms(500);
-        // // REG32(0x40006000) = ~REG32(0x40006000);
-        // printf("Hello from NE004-PLUS cortex-m4 core!\n");
-        // while (UART_STAT(UART0) & UART_STAT_RXFL);
-        // __io_putchar(UART_DATA(UART0));
+    // while (1)
+    // {
+    //     /* code */
+    //     // // REG32(0x40006000) = 0xFFFFFFFF;
+    //     // arm_delay_ms(500);
+    //     // // REG32(0x40006000) = ~REG32(0x40006000);
+    //     // printf("Hello from NE004-PLUS cortex-m4 core!\n");
+    //     // // REG32(0x40006000) = 0x0;
+    //     // // UART_DATA(UART0) = 0xA5;
+    //     // arm_delay_ms(500);
+    //     // // REG32(0x40006000) = ~REG32(0x40006000);
+    //     // printf("Hello from NE004-PLUS cortex-m4 core!\n");
+    //     // while (UART_STAT(UART0) & UART_STAT_RXFL);
+    //     // __io_putchar(UART_DATA(UART0));
          
-        if (rx_timeout_flag)
-        {
-            /* code */
-            rx_timeout_flag = 0;
-            for (size_t i = 0; i < rx_data_cnt; i++)
-            {
-                /* code */
-                __io_putchar(rx_data_buf[i]);
-            }
-            rx_data_cnt = 0;
-        }
+    //     if (rx_timeout_flag)
+    //     {
+    //         /* code */
+    //         rx_timeout_flag = 0;
+    //         for (size_t i = 0; i < rx_data_cnt; i++)
+    //         {
+    //             /* code */
+    //             __io_putchar(rx_data_buf[i]);
+    //         }
+    //         rx_data_cnt = 0;
+    //     }
         
         
         
-    }
+    // }
     (void)temp;
     return 0;
 }

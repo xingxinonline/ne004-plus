@@ -2,7 +2,7 @@
  * @Author       : panxinhao
  * @Date         : 2023-07-25 11:04:26
  * @LastEditors  : xingxinonline
- * @LastEditTime : 2024-08-22 15:35:35
+ * @LastEditTime : 2024-08-23 17:29:12
  * @FilePath     : \\ne004-plus\\cortexm4_default\\hal_init.c
  * @Description  :
  *
@@ -132,12 +132,12 @@ int hal_init(void)
     /* enable arm2riscv interrupt */
     // REG64(0x4000D17CU) |= 1ULL << REQ_FFT_DONE_IRQn; //发送FFT中断到riscv处理
     /* enable arm nvic irq */
-    NVIC_EnableIRQ(RXOVRINT0_IRQn);
-    NVIC_EnableIRQ(TXOVRINT0_IRQn);
-    NVIC_EnableIRQ(RXINT0_IRQn);
-    NVIC_EnableIRQ(TXINT0_IRQn);
-    UART_BAUD(UART0) = UART_BAUD_DIV & (APBClock / 9600);
-    UART_CTRL(UART0) = UART_CTRL_TEN | UART_CTRL_REN | UART_CTRL_TIE | UART_CTRL_RIE | UART_CTRL_TORIE | UART_CTRL_RORIE;
+    // NVIC_EnableIRQ(RXOVRINT0_IRQn);
+    // NVIC_EnableIRQ(TXOVRINT0_IRQn);
+    // NVIC_EnableIRQ(RXINT0_IRQn);
+    // NVIC_EnableIRQ(TXINT0_IRQn);
+    UART_BAUD(UART0) = UART_BAUD_DIV & (APBClock / 115200);
+    UART_CTRL(UART0) = UART_CTRL_TEN | UART_CTRL_REN;
 
     setvbuf(stdout, NULL, _IONBF, 0);
 

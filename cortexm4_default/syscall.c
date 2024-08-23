@@ -2,7 +2,7 @@
  * @Author       : xingxinonline
  * @Date         : 2024-08-22 14:50:43
  * @LastEditors  : xingxinonline
- * @LastEditTime : 2024-08-22 15:06:39
+ * @LastEditTime : 2024-08-23 11:09:48
  * @FilePath     : \\ne004-plus\\cortexm4_default\\syscall.c
  * @Description  : 
  * 
@@ -97,4 +97,10 @@ int _kill(int pid, int sig)
     (void)pid;
     (void)sig;
     return 1;
+}
+
+void _exit(int status) {
+    while (1) {
+        // 在此处你可以执行其他清理操作或仅保持系统挂起
+    }
 }

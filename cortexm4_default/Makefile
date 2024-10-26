@@ -20,7 +20,7 @@ SIZE := $(TOOLCHAIN_PATH)/arm-none-eabi-size
 # 目标架构设置
 CPU := -mcpu=cortex-m4
 FPU := -mfpu=fpv4-sp-d16
-FLOAT-ABI := -mfloat-abi=softfp
+FLOAT-ABI := -mfloat-abi=soft
 MCU := $(CPU) -mthumb $(FPU) $(FLOAT-ABI)
 
 ADDITIONAL_DEFINES :=
@@ -74,7 +74,7 @@ CCFLAGS  += -g
 CORE=M4
 ARM_LDFLAGS := -Wl,--cpu=Cortex-M4
 CMSIS_ARM_FEATURES := _FP
-FLOAT=softfp
+FLOAT=soft
 GCC_TARGET_ARCH := cortex-m4
 
 ARM_CPU := "ARMC$(CORE)"

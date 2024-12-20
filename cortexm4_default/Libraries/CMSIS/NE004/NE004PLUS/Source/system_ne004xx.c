@@ -1,8 +1,8 @@
 /*
  * @Author       : panxinhao
  * @Date         : 2023-07-25 16:21:23
- * @LastEditors  : panxinhao
- * @LastEditTime : 2024-04-10 11:33:47
+ * @LastEditors  : xingxinonline
+ * @LastEditTime : 2024-10-26 17:03:51
  * @FilePath     : \\ne004-plus\\cortexm4_default\\Libraries\\CMSIS\\NE004\\NE004PLUS\\Source\\system_ne004xx.c
  * @Description  : 
  * 
@@ -61,53 +61,12 @@ void SystemInit(void)
     system_clock_config();
     SystemCoreClockUpdate();
     
-    uint32_t temp = CHIP_MODE;
+    SystemCoreClock = 24000000U;
 
-    switch (temp & 7)
-    {
-    case 1:
-        /* code */
-        SystemCoreClock = 200000000U;
-        break;
-    case 2:
-        /* code */
-        SystemCoreClock = 400000000U;
-        break;
-    case 4:
-        /* code */
-        SystemCoreClock = 25000000U;
-        break;
+    AHBClock = SystemCoreClock;
+    APBClock = SystemCoreClock / 2;
+        
     
-    default:
-        break;
-    }
-
-    switch ((temp >> 6) & 3)
-    {
-    case 0:
-        /* code */
-        AHBClock = SystemCoreClock / 2;
-        APBClock = SystemCoreClock / 4;
-        break;
-    case 1:
-        /* code */
-        AHBClock = SystemCoreClock / 4;
-        APBClock = SystemCoreClock / 8;
-        break;
-    case 2:
-        /* code */
-        AHBClock = SystemCoreClock / 2;
-        APBClock = SystemCoreClock / 8;
-        break;
-    case 3:
-        /* code */
-        AHBClock = SystemCoreClock / 4;
-        APBClock = SystemCoreClock / 16;
-        break;
-    
-    default:
-        break;
-    }
 }
 /*!
     \brief      configure the system clock

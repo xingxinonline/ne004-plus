@@ -121,6 +121,8 @@ INCLUDES := \
 # 源文件和对象文件
 C_SOURCES := \
 	hal_init.c \
+	$(NE004_DRIVER_DIR)/Source/rcc.c \
+	$(NE004_DRIVER_DIR)/Source/ne004xx_gpio.c \
 	$(NE004_DRIVER_DIR)/Source/ne004xx_uart.c \
 	$(CMSIS_DIR)/NE004/NE004PLUS/Source/system_ne004xx.c \
 	syscall.c 
@@ -137,7 +139,7 @@ OBJECTS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(C_SOURCES)) \
 		   $(patsubst %.S,$(BUILD_DIR)/%.o,$(ASM_SOURCES))
 
 # 默认目标
-all: $(BUILD_DIR) $(BUILD_DIR)/$(PROJECT_NAME).elf $(BUILD_DIR)/$(PROJECT_NAME).dis $(BUILD_DIR)/$(PROJECT_NAME).all.dis
+all: $(BUILD_DIR) $(BUILD_DIR)/$(PROJECT_NAME).elf $(BUILD_DIR)/$(PROJECT_NAME).dis $(BUILD_DIR)/$(PROJECT_NAME).all.dis 
 
 # 创建 build 目录的规则
 $(BUILD_DIR):

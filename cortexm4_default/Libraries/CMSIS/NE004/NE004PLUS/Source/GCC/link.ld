@@ -6,12 +6,11 @@
 /* Program Entry, set to mark it as "used" and avoid gc */
 MEMORY
 {
-    CODE (rx) : ORIGIN = 0x80000000, LENGTH = 128K /* 3072KB flash */
-    DATA (rw) : ORIGIN = 0x20000000, LENGTH = 32k  /* 256KB sram */
-    /* RAM (RWX) : ORIGIN = 0x80000000, LENGTH = 256K */
+    CODE (rx) : ORIGIN = 0x20000000, LENGTH = 256k /* 3072KB flash */
+    DATA (rw) : ORIGIN = 0x20040000, LENGTH = 128k  /* 256KB sram */
 }
 ENTRY(g_pfnVectors)
-_system_stack_size = 0x3000;
+_system_stack_size = 0x1000;
 
 SECTIONS
 {
@@ -24,6 +23,8 @@ SECTIONS
         *(.text.Reset_Handler)              /* End code*/
         *(.text)                        /* remaining code */
         *(.text.*)                      /* remaining code */
+        *(.rodata)                      /* read-only data (constants) */
+        *(.rodata*)
         *(.glue_7)
         *(.glue_7t)
         *(.gnu.linkonce.t*)
@@ -68,9 +69,7 @@ SECTIONS
         . = ALIGN(4);
         /* This is used by the startup in order to initialize the .data secion */
         _sdata = . ;
-        *(.rodata)                      /* read-only data (constants) */
-        *(.rodata*)
-        . = ALIGN(4);
+
         *(.data)
         *(.data.*)
         *(.gnu.linkonce.d*)

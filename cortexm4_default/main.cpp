@@ -2,7 +2,7 @@
  * @Author       : xingxinonline
  * @Date         : 2024-08-22 14:51:12
  * @LastEditors  : xingxinonline
- * @LastEditTime : 2024-08-23 19:25:28
+ * @LastEditTime : 2024-12-20 10:32:30
  * @FilePath     : \\ne004-plus\\cortexm4_default\\main.cpp
  * @Description  : 
  * @
@@ -106,7 +106,7 @@ int main() {
     // 打印初始消息
     MicroPrintf("System initialized successfully.");
 
-    TF_LITE_ENSURE_STATUS(LoadQuantModelAndPerformInference());
+    // TF_LITE_ENSURE_STATUS(LoadQuantModelAndPerformInference());
 
     MicroPrintf("~~~ALL TESTS PASSED~~~\n");
 

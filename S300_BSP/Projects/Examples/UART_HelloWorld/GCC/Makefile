@@ -6,13 +6,14 @@ CC      := arm-none-eabi-gcc
 AS      := arm-none-eabi-gcc
 LD      := arm-none-eabi-gcc
 OBJCOPY := arm-none-eabi-objcopy
-CFLAGS  := -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -O2 -ffunction-sections -fdata-sections -I../../../../CMSIS/Device/PiMCHIP/S300/Include -I../../../../../CMSIS_5/CMSIS/Core/Include -I../../../../Drivers/BSP/Include
+CFLAGS  := -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -O2 -ffunction-sections -fdata-sections -I../../../../CMSIS/Device/PiMCHIP/S300/Include -I../../../../CMSIS/Core/Include -I../../../../Drivers/BSP/Include
 ASFLAGS := $(CFLAGS)
 LDFLAGS := -T ../../../../ld/sram.ld -Wl,--gc-sections -nostartfiles -Wl,-Map,$(BUILD)/$(PROJECT).map
 
 SRCS_C := \
 	../Src/main.c \
-	../../../../CMSIS/Device/PiMCHIP/S300/Source/system_S300.c
+	../../../../CMSIS/Device/PiMCHIP/S300/Source/system_S300.c \
+
 
 SRCS_S := \
 	../../../../CMSIS/Device/PiMCHIP/S300/Source/GCC/startup_S300.S

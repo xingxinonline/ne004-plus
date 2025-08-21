@@ -2,6 +2,7 @@
 #define S300_BSP_H
 
 #include "s300.h"
+#include "s300_uart.h"
 
 static inline void BSP_Clock_Init(void)
 {

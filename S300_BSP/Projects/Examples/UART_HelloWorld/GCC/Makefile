@@ -6,13 +6,14 @@ CC      := arm-none-eabi-gcc
 AS      := arm-none-eabi-gcc
 LD      := arm-none-eabi-gcc
 OBJCOPY := arm-none-eabi-objcopy
-CFLAGS  := -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -O2 -ffunction-sections -fdata-sections -I../../../../CMSIS/Device/PiMCHIP/S300/Include -I../../../../CMSIS/Core/Include -I../../../../Drivers/BSP/Include
+CFLAGS  := -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -O2 -ffunction-sections -fdata-sections -I../../../../CMSIS/Device/PiMCHIP/S300/Include -I../../../../CMSIS/Core/Include -I../../../../Drivers/BSP/Include -I../../../../Drivers/UART/Include
 ASFLAGS := $(CFLAGS)
 LDFLAGS := -T ../../../../ld/sram.ld -Wl,--gc-sections -nostartfiles -Wl,-Map,$(BUILD)/$(PROJECT).map
 
 SRCS_C := \
 	../Src/main.c \
 	../../../../CMSIS/Device/PiMCHIP/S300/Source/system_S300.c \
+	../../../../Drivers/UART/Source/s300_uart.c
 
 
 SRCS_S := \
@@ -24,6 +25,9 @@ $(BUILD)/%.o: ../Src/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/%.o: ../../../../CMSIS/Device/PiMCHIP/S300/Source/%.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: ../../../../Drivers/UART/Source/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/%.o: ../../../../CMSIS/Device/PiMCHIP/S300/Source/GCC/%.S | $(BUILD)

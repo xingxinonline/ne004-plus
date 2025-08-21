@@ -1,0 +1,41 @@
+# Build artifacts
+build/
+**/build/
+out/
+bin/
+obj/
+*.o
+*.obj
+*.d
+*.a
+*.lib
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.dump
+
+# Logs
+*.log
+
+# Editor/IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Swap/backup
+*~
+*.swp
+*.swo
+*.bak
+
+# Tools/indexes
+compile_commands.json
+.cache/
+.clangd/
+.clangd-cache/

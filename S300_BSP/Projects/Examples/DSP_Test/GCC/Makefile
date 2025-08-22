@@ -1,12 +1,14 @@
-# Minimal Makefile for S300 UART HelloWorld
+# Example: DSP Instruction Test on S300 (Cortex-M4)
 
-PROJECT := uart_helloworld
+PROJECT := dsp_test
 BUILD   := build
 CC      := arm-none-eabi-gcc
 AS      := arm-none-eabi-gcc
 LD      := arm-none-eabi-gcc
 OBJCOPY := arm-none-eabi-objcopy
-CFLAGS  := -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -O2 -ffunction-sections -fdata-sections -I../../../../CMSIS/Device/PiMCHIP/S300/Include -I../../../../CMSIS/Core/Include -I../../../../Drivers/BSP/Include -I../../../../Drivers/UART/Include -I../../../../Boards/S300_EVB -I../../../../Drivers/SoC/Include
+CFLAGS  := -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -O2 -ffunction-sections -fdata-sections \
+	-I../../../../CMSIS/Device/PiMCHIP/S300/Include -I../../../../CMSIS/Core/Include -I../../../../Drivers/BSP/Include \
+	-I../../../../Drivers/UART/Include -I../../../../Boards/S300_EVB -I../../../../Drivers/SoC/Include
 ASFLAGS := $(CFLAGS)
 LDFLAGS := -T ../../../../ld/sram.ld -Wl,--gc-sections -nostartfiles -Wl,-Map,$(BUILD)/$(PROJECT).map
 
@@ -16,7 +18,6 @@ SRCS_C := \
 	../../../../Drivers/UART/Source/s300_uart.c \
 	../../../../Boards/S300_EVB/clock_config.c \
 	../../../../Boards/S300_EVB/pinmux_config.c
-
 
 SRCS_S := \
 	../../../../CMSIS/Device/PiMCHIP/S300/Source/GCC/startup_S300.S
@@ -50,8 +51,7 @@ $(BUILD):
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all clean
+.PHONY: all clean dbg
 
-# Start GDB (expects an OpenOCD or other GDB server at localhost:3333)
 dbg: all
 	arm-none-eabi-gdb -q -x gdbinit.gdb

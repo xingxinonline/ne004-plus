@@ -23,22 +23,108 @@ extern "C" {
 #define IO_MATRIX_BASE  (0x40008000UL)
 #define IO_MUX_BASE     (0x40009000UL)
 
+/* QSPI (Cadence) register base */
+#define QSPI_CFG_BASE   (0x4000D000UL)
+
+/* Cadence QSPI minimal register set (offsets per cadence_qspi.h) */
+#define CQSPI_REG_CONFIG                        0x00
+#define CQSPI_REG_CONFIG_ENABLE                 (1u << 0)
+#define CQSPI_REG_CONFIG_DIRECT                 (1u << 7)
+#define CQSPI_REG_CONFIG_DECODE                 (1u << 9)
+#define CQSPI_REG_CONFIG_CHIPSELECT_LSB         10
+#define CQSPI_REG_CONFIG_CHIPSELECT_MASK        0xF
+#define CQSPI_REG_CONFIG_IDLE_LSB               31
+
+#define CQSPI_REG_RD_INSTR                      0x04
+#define CQSPI_REG_RD_INSTR_OPCODE_LSB           0
+#define CQSPI_REG_RD_INSTR_TYPE_DATA_LSB        16
+#define CQSPI_REG_RD_INSTR_DUMMY_LSB            24
+#define CQSPI_REG_RD_INSTR_DUMMY_MASK           0x1F
+
+#define CQSPI_REG_WR_INSTR                      0x08
+#define CQSPI_REG_WR_INSTR_OPCODE_LSB           0
+#define CQSPI_REG_WR_INSTR_TYPE_ADDR_LSB        12
+#define CQSPI_REG_WR_INSTR_TYPE_DATA_LSB        16
+
+#define CQSPI_REG_SIZE                          0x14
+#define CQSPI_REG_SIZE_ADDRESS_LSB              0
+#define CQSPI_REG_SIZE_ADDRESS_MASK             0xF
+
+#define CQSPI_REG_SDRAMLEVEL                    0x2C
+#define CQSPI_REG_SDRAMLEVEL_WR_LSB             16
+#define CQSPI_REG_SDRAMLEVEL_WR_MASK            0xFFFF
+
+#define CQSPI_REG_CMDCTRL                       0x90
+#define CQSPI_REG_CMDCTRL_EXECUTE               (1u << 0)
+#define CQSPI_REG_CMDCTRL_INPROGRESS            (1u << 1)
+#define CQSPI_REG_CMDCTRL_DUMMY_LSB             7
+#define CQSPI_REG_CMDCTRL_WR_BYTES_LSB          12
+#define CQSPI_REG_CMDCTRL_WR_EN_LSB             15
+#define CQSPI_REG_CMDCTRL_ADD_BYTES_LSB         16
+#define CQSPI_REG_CMDCTRL_ADDR_EN_LSB           19
+#define CQSPI_REG_CMDCTRL_RD_BYTES_LSB          20
+#define CQSPI_REG_CMDCTRL_RD_EN_LSB             23
+#define CQSPI_REG_CMDCTRL_OPCODE_LSB            24
+#define CQSPI_REG_CMDCTRL_DUMMY_MASK            0x1F
+#define CQSPI_REG_CMDCTRL_WR_BYTES_MASK         0x7
+#define CQSPI_REG_CMDCTRL_ADD_BYTES_MASK        0x3
+#define CQSPI_REG_CMDCTRL_RD_BYTES_MASK         0x7
+
+#define CQSPI_REG_CMDADDRESS                    0x94
+#define CQSPI_REG_CMDREADDATALOWER              0xA0
+#define CQSPI_REG_CMDREADDATAUPPER              0xA4
+#define CQSPI_REG_CMDWRITEDATALOWER             0xA8
+#define CQSPI_REG_CMDWRITEDATAUPPER             0xAC
+
+/* Helpers */
+#define CQSPI_IS_IDLE() \
+	(((*(volatile uint32_t *)(QSPI_CFG_BASE + CQSPI_REG_CONFIG)) >> CQSPI_REG_CONFIG_IDLE_LSB) & 0x1u)
+
 /* System Core Clock */
 #define HSE_CLOCK_HZ    (24000000UL)
 
-/* UART registers (DW-apb-uart like) */
-#define UART_RBRn(b)   (*(volatile uint32_t *)((b) + 0x00))
-#define UART_THRn(b)   (*(volatile uint32_t *)((b) + 0x00))
-#define UART_DLLn(b)   (*(volatile uint32_t *)((b) + 0x00))
-#define UART_IERn(b)   (*(volatile uint32_t *)((b) + 0x04))
-#define UART_DLHn(b)   (*(volatile uint32_t *)((b) + 0x04))
-#define UART_IIRn(b)   (*(volatile uint32_t *)((b) + 0x08))
-#define UART_FCRn(b)   (*(volatile uint32_t *)((b) + 0x08))
-#define UART_LCRn(b)   (*(volatile uint32_t *)((b) + 0x0C))
-#define UART_MCRn(b)   (*(volatile uint32_t *)((b) + 0x10))
-#define UART_LSRn(b)   (*(volatile uint32_t *)((b) + 0x14))
-#define UART_USRn(b)   (*(volatile uint32_t *)((b) + 0x7C))
-#define UART_DLFn(b)   (*(volatile uint32_t *)((b) + 0xC0))
+/* UART registers (DW_apb_uart) */
+/* 0x00/0x04/0x08 dual-mapped with DLAB & access type */
+#define UART_RBRn(b)    (*(volatile uint32_t *)((b) + 0x00)) /* RO */
+#define UART_THRn(b)    (*(volatile uint32_t *)((b) + 0x00)) /* WO */
+#define UART_DLLn(b)    (*(volatile uint32_t *)((b) + 0x00)) /* RW (when LCR[7]=1) */
+#define UART_IERn(b)    (*(volatile uint32_t *)((b) + 0x04)) /* RW */
+#define UART_DLHn(b)    (*(volatile uint32_t *)((b) + 0x04)) /* RW (when LCR[7]=1) */
+#define UART_IIRn(b)    (*(volatile uint32_t *)((b) + 0x08)) /* RO */
+#define UART_FCRn(b)    (*(volatile uint32_t *)((b) + 0x08)) /* WO */
+#define UART_LCRn(b)    (*(volatile uint32_t *)((b) + 0x0C)) /* RW */
+#define UART_MCRn(b)    (*(volatile uint32_t *)((b) + 0x10)) /* RW */
+#define UART_LSRn(b)    (*(volatile uint32_t *)((b) + 0x14)) /* RO */
+#define UART_MSRn(b)    (*(volatile uint32_t *)((b) + 0x18)) /* RO */
+#define UART_SCRn(b)    (*(volatile uint32_t *)((b) + 0x1C)) /* RW */
+#define UART_LPDLLn(b)  (*(volatile uint32_t *)((b) + 0x20)) /* RW */
+#define UART_LPDLHn(b)  (*(volatile uint32_t *)((b) + 0x24)) /* RW */
+/* 0x30..0x6C SRBR/STHR shadow FIFOs not defined per-entry here */
+#define UART_USRn(b)    (*(volatile uint32_t *)((b) + 0x7C)) /* RO */
+#define UART_TFLn(b)    (*(volatile uint32_t *)((b) + 0x80)) /* RO */
+#define UART_RFLn(b)    (*(volatile uint32_t *)((b) + 0x84)) /* RO */
+#define UART_SRRn(b)    (*(volatile uint32_t *)((b) + 0x88)) /* WO */
+#define UART_SRTSn(b)   (*(volatile uint32_t *)((b) + 0x8C)) /* RW */
+#define UART_SBCRn(b)   (*(volatile uint32_t *)((b) + 0x90)) /* RW */
+#define UART_SDMAMn(b)  (*(volatile uint32_t *)((b) + 0x94)) /* RW */
+#define UART_SFEn(b)    (*(volatile uint32_t *)((b) + 0x98)) /* RW */
+#define UART_SRTn(b)    (*(volatile uint32_t *)((b) + 0x9C)) /* RW */
+#define UART_STETn(b)   (*(volatile uint32_t *)((b) + 0xA0)) /* RO */
+#define UART_HTXn(b)    (*(volatile uint32_t *)((b) + 0xA4)) /* RW */
+#define UART_DMASAn(b)  (*(volatile uint32_t *)((b) + 0xA8)) /* WO */
+#define UART_TCRn(b)    (*(volatile uint32_t *)((b) + 0xAC)) /* RW */
+#define UART_DE_ENn(b)  (*(volatile uint32_t *)((b) + 0xB0)) /* RW */
+#define UART_RE_ENn(b)  (*(volatile uint32_t *)((b) + 0xB4)) /* RW */
+#define UART_DETn(b)    (*(volatile uint32_t *)((b) + 0xB8)) /* RW */
+#define UART_TATn(b)    (*(volatile uint32_t *)((b) + 0xBC)) /* RW */
+#define UART_DLFn(b)    (*(volatile uint32_t *)((b) + 0xC0)) /* RW */
+#define UART_RARn(b)    (*(volatile uint32_t *)((b) + 0xC4)) /* RW */
+#define UART_TARn(b)    (*(volatile uint32_t *)((b) + 0xC8)) /* RW */
+#define UART_LCR_EXTn(b) (*(volatile uint32_t *)((b) + 0xCC)) /* RW */
+#define UART_REG_TIMEOUT_RSTn(b) (*(volatile uint32_t *)((b) + 0xD4)) /* RW */
+#define UART_CPRn(b)    (*(volatile uint32_t *)((b) + 0xF4)) /* RO */
+#define UART_UCVn(b)    (*(volatile uint32_t *)((b) + 0xF8)) /* RO */
+#define UART_CTRn(b)    (*(volatile uint32_t *)((b) + 0xFC)) /* RO */
 
 /* RCC minimal fields used */
 #define RCC_APB0_CLK_EN (*(volatile uint32_t *)(RCC_BASE + 0x08))

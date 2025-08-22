@@ -1,13 +1,17 @@
-# Minimal Makefile for S300 UART HelloWorld
+# Example: Flash Test on S300 (QSPI NOR via Cadence controller)
 
-PROJECT := uart_helloworld
+PROJECT := flash_test
 BUILD   := build
 CC      := arm-none-eabi-gcc
 AS      := arm-none-eabi-gcc
 LD      := arm-none-eabi-gcc
 OBJCOPY := arm-none-eabi-objcopy
-CFLAGS  := -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -O2 -ffunction-sections -fdata-sections -I../../../../CMSIS/Device/PiMCHIP/S300/Include -I../../../../CMSIS/Core/Include -I../../../../Drivers/BSP/Include -I../../../../Drivers/UART/Include -I../../../../Boards/S300_EVB -I../../../../Drivers/SoC/Include
+CFLAGS  := -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -O2 -ffunction-sections -fdata-sections \
+	-I../../../../CMSIS/Device/PiMCHIP/S300/Include -I../../../../CMSIS/Core/Include -I../../../../Drivers/BSP/Include \
+	-I../../../../Drivers/UART/Include -I../../../../Boards/S300_EVB -I../../../../Drivers/SoC/Include \
+	-I../../../../Projects/Bootloader/Src
 ASFLAGS := $(CFLAGS)
+# 例程放 SRAM 运行，避免 Flash 自擦写时的 XIP 读冲突
 LDFLAGS := -T ../../../../ld/sram.ld -Wl,--gc-sections -nostartfiles -Wl,-Map,$(BUILD)/$(PROJECT).map
 
 SRCS_C := \
@@ -15,8 +19,8 @@ SRCS_C := \
 	../../../../CMSIS/Device/PiMCHIP/S300/Source/system_S300.c \
 	../../../../Drivers/UART/Source/s300_uart.c \
 	../../../../Boards/S300_EVB/clock_config.c \
-	../../../../Boards/S300_EVB/pinmux_config.c
-
+	../../../../Boards/S300_EVB/pinmux_config.c \
+	../../../../Projects/Bootloader/Src/flash_if.c
 
 SRCS_S := \
 	../../../../CMSIS/Device/PiMCHIP/S300/Source/GCC/startup_S300.S
@@ -38,6 +42,9 @@ $(BUILD)/%.o: ../../../../Boards/S300_EVB/%.c | $(BUILD)
 $(BUILD)/%.o: ../../../../CMSIS/Device/PiMCHIP/S300/Source/GCC/%.S | $(BUILD)
 	$(AS) $(ASFLAGS) -c $< -o $@
 
+$(BUILD)/%.o: ../../../../Projects/Bootloader/Src/%.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 all: $(BUILD)/$(PROJECT).elf
 
 $(BUILD)/$(PROJECT).elf: $(OBJS) | $(BUILD)
@@ -50,8 +57,8 @@ $(BUILD):
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all clean
+.PHONY: all clean dbg
 
-# Start GDB (expects an OpenOCD or other GDB server at localhost:3333)
+# Start GDB (expects a GDB server at localhost:3333)
 dbg: all
 	arm-none-eabi-gdb -q -x gdbinit.gdb

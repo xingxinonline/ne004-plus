@@ -1,4 +1,5 @@
 #include "s300_bsp.h"
+#include <stdio.h>
 
 int main(void)
 {
@@ -10,6 +11,11 @@ int main(void)
     S300_UART_PutStringI(BOARD_UART_DEBUG_ID, "Hello, PiMCHIP S300!\n");
     S300_DelayMs(200);
     S300_UART_PutStringI(BOARD_UART_DEBUG_ID, "Hello again.\n");
+
+    /* Retarget demo: printf via UART3 */
+    long long big = 0x123456789ABCDEF0LL;
+    double pi = 3.141592653589793;
+    printf("printf demo: int=%d, ll=0x%llx, pi=%.6f\n", 42, big, pi);
     /* 1-second heartbeat print */
     uint32_t last_ms = S300_SysTick_Millis();
     for (;;)

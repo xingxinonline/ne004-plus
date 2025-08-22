@@ -281,3 +281,117 @@ __attribute__((weak)) void UART3_IRQHandler(void)
         (void)s_ring_push(&s_rx_rings[3], b);
     }
 }
+
+/* ===== Extended features implementations ===== */
+
+int S300_UART_SetFIFO(uint32_t idx, const S300_UartFifoConfig *cfg)
+{
+    if (!cfg) return -1;
+    uint32_t base = UARTn_BASE(idx);
+    /* Use Shadow registers if available (SFE/SRT/STET) for clear separation */
+    if (cfg->enable) {
+        UART_SFEn(base) = 0x1; /* enable FIFO via shadow */
+    } else {
+        UART_SFEn(base) = 0x0;
+    }
+    UART_SRTn(base) = (uint32_t)(cfg->rx_trig & 0x3u); /* RX trigger 0..3 */
+    /* STET is RO in our soc header; if RO we fallback to FCR write */
+    /* Program FCR as well for compatibility (RT[7:6], TET[5:4], DMAM[3], RXRST[1], TXRST[2], FIFOE[0]) */
+    uint32_t fcr = 0;
+    if (cfg->enable) fcr |= 0x1u;
+    if (cfg->dma_mode) fcr |= (1u << 3);
+    fcr |= ((uint32_t)(cfg->tx_trig & 0x3u) << 4);
+    fcr |= ((uint32_t)(cfg->rx_trig & 0x3u) << 6);
+    /* Reset FIFOs to apply new watermarks */
+    fcr |= (1u << 1) | (1u << 2);
+    UART_FCRn(base) = fcr;
+    return 0;
+}
+
+int S300_UART_EnableIRQ(uint32_t idx, uint32_t ier_mask)
+{
+    uint32_t base = UARTn_BASE(idx);
+    UART_IERn(base) |= ier_mask;
+    return 0;
+}
+
+int S300_UART_DisableIRQ(uint32_t idx, uint32_t ier_mask)
+{
+    uint32_t base = UARTn_BASE(idx);
+    UART_IERn(base) &= ~ier_mask;
+    return 0;
+}
+
+uint32_t S300_UART_GetIIR(uint32_t idx)
+{
+    uint32_t base = UARTn_BASE(idx);
+    return UART_IIRn(base);
+}
+
+uint32_t S300_UART_GetLSR(uint32_t idx)
+{
+    uint32_t base = UARTn_BASE(idx);
+    return UART_LSRn(base);
+}
+
+int S300_UART_SetRS485(uint32_t idx, const S300_UartRS485Config *cfg)
+{
+    if (!cfg) return -1;
+    uint32_t base = UARTn_BASE(idx);
+    if (!cfg->enable) {
+        /* Disable DE/RE */
+        UART_DE_ENn(base) = 0u;
+        UART_RE_ENn(base) = 0u;
+        UART_TCRn(base) = 0u;
+        return 0;
+    }
+    /* TCR: [3:1] per doc: mode and polarity; bit0 RS485 enable depending on IP, here use bit0 as enable */
+    uint32_t tcr = 0;
+    /* mode: put into bits [3:2] with our mapping; some IPs use [3] only, we keep backward friendly */
+    tcr |= ((uint32_t)(cfg->mode & 0x3u) << 2);
+    if (cfg->de_active_high) tcr |= (1u << 2);
+    if (cfg->re_active_high) tcr |= (1u << 1);
+    tcr |= 1u; /* enable RS485 feature */
+    UART_TCRn(base) = tcr;
+    /* Enable DE/RE outputs */
+    UART_DE_ENn(base) = 1u;
+    UART_RE_ENn(base) = 1u;
+    /* Program timings */
+    uint32_t det = ((uint32_t)cfg->de_deassert_time << 16) | ((uint32_t)cfg->de_assert_time);
+    UART_DETn(base) = det;
+    uint32_t tat = ((uint32_t)cfg->de2re_turnaround << 16) | ((uint32_t)cfg->re2de_turnaround);
+    UART_TATn(base) = tat;
+    return 0;
+}
+
+int S300_UART_Set9bit(uint32_t idx, const S300_Uart9bitConfig *cfg)
+{
+    if (!cfg) return -1;
+    uint32_t base = UARTn_BASE(idx);
+    uint32_t lcr_ext = UART_LCR_EXTn(base);
+    if (cfg->enable) lcr_ext |= (1u << 0); else lcr_ext &= ~(1u << 0);
+    if (cfg->addr_match_en) lcr_ext |= (1u << 1); else lcr_ext &= ~(1u << 1);
+    UART_LCR_EXTn(base) = lcr_ext;
+    UART_RARn(base) = (uint32_t)(cfg->rx_addr & 0xFFu);
+    UART_TARn(base) = (uint32_t)(cfg->tx_addr & 0xFFu);
+    return 0;
+}
+
+int S300_UART_9bitSendAddress(uint32_t idx, uint8_t addr)
+{
+    uint32_t base = UARTn_BASE(idx);
+    /* Set TX-ADDR mode: some IPs use LCR_EXT[3] to indicate address frame */
+    uint32_t lcr_ext = UART_LCR_EXTn(base);
+    lcr_ext |= (1u << 3); /* enter address transmit mode */
+    UART_LCR_EXTn(base) = lcr_ext;
+    UART_TARn(base) = addr;
+    /* send single byte with address flag */
+    while (!S300_UART_TxReady(idx)) { /* spin */ }
+    UART_THRn(base) = addr;
+    /* wait shift out */
+    while (!S300_UART_TxIdle(idx)) { /* spin */ }
+    /* Exit address mode */
+    lcr_ext &= ~(1u << 3);
+    UART_LCR_EXTn(base) = lcr_ext;
+    return 0;
+}

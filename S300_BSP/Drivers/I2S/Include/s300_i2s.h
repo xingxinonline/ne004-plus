@@ -8,8 +8,8 @@
 extern "C" {
 #endif
 
-/* I2S instances
-   M4 domain: I2S0@0x4001B000, I2S1@0x4001C000; AON: I2S0_AON@0x43010000 */
+/* I2S instances (见 docs/i2s寄存器手册.md)
+    M4 domain: I2S0@0x4001B000, I2S1@0x4001C000; AON: I2S0_AON@0x43010000 */
 
 typedef enum {
     S300_I2S0_M4 = 0,
@@ -45,6 +45,12 @@ typedef enum {
     S300_I2S_SCLKG_24   = 4
 } S300_I2S_SclkGate;
 
+/* ISR/IMR 中断位定义（参考文档 ISR0/IMR0 位定义） */
+#define S300_I2S_INT_RXDA  (1u << 0)  /* RX FIFO 达到触发电平 */
+#define S300_I2S_INT_RXFO  (1u << 1)  /* RX FIFO 溢出 */
+#define S300_I2S_INT_TXFE  (1u << 4)  /* TX FIFO 空触发 */
+#define S300_I2S_INT_TXFO  (1u << 5)  /* TX FIFO 溢出 */
+
 typedef struct {
     S300_I2S_Interface iface;
     S300_I2S_WordLen word_len;     /* RX/TX word length */
@@ -68,6 +74,9 @@ void S300_I2S_SetClockGen(S300_I2S_Id id, S300_I2S_WordSelectSize wss, S300_I2S_
 void S300_I2S_EnableRx(S300_I2S_Id id, uint8_t en);
 void S300_I2S_EnableTx(S300_I2S_Id id, uint8_t en);
 
+/* FIFO 触发电平设置（RFCR0/TFCR0 低 4 位） */
+void S300_I2S_SetFifoTrigger(S300_I2S_Id id, uint8_t rx_level, uint8_t tx_level);
+
 /* FIFO */
 void S300_I2S_FlushRx(S300_I2S_Id id);
 void S300_I2S_FlushTx(S300_I2S_Id id);
@@ -75,6 +84,7 @@ void S300_I2S_FlushTx(S300_I2S_Id id);
 /* IRQ */
 int  S300_I2S_IntMask(S300_I2S_Id id, uint32_t mask, uint8_t en);
 uint32_t S300_I2S_IntStatus(S300_I2S_Id id);
+void S300_I2S_ClearOverrun(S300_I2S_Id id); /* 读取 ROR0 / TOR0 清除溢出 */
 
 /* Data IO (stereo LR) */
 void S300_I2S_WriteLR(S300_I2S_Id id, uint16_t left, uint16_t right);

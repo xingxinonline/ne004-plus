@@ -11,8 +11,8 @@
 # 自动收集所有带 GCC/Makefile 的示例目录名称作为 CASE 列表
 EXAMPLES := $(shell ls -1d Projects/Examples/*/GCC 2>/dev/null | sed -E 's#.*/Examples/([^/]+)/GCC#\1#' | sort)
 
-# 目标示例目录
-CASE ?=
+# 目标示例目录（默认 UART_HelloWorld）
+CASE ?= UART_HelloWorld
 EXAMPLE_DIR := Projects/Examples/$(CASE)/GCC
 EXAMPLE_MK  := $(EXAMPLE_DIR)/Makefile
 
@@ -69,7 +69,7 @@ endif
 help:
 	@echo "用法："
 	@echo "  make list"
-	@echo "  make CASE=<示例名>            # 构建"
+	@echo "  make [CASE=<示例名>]         # 构建（默认 CASE=UART_HelloWorld）"
 	@echo "  make dbg CASE=<示例名>        # 调试（调用示例内的 gdb 脚本）"
 	@echo "  make clean CASE=<示例名>      # 清理"
 	@echo "  make clean-all               # 清理全部"

@@ -12,6 +12,12 @@ extern "C" {
 #define SRAM0_BASE      (0x10000000UL) /* 8KB */
 #define SRAM1_BASE      (0x20000000UL) /* 384KB */
 
+/* Align memory map macros with original demo (accessible from M4): */
+#define AON_I2S_BASE    (0x43010000UL)
+#define AON_SRAM1_BASE  (0x43020000UL)
+#define DSP_SRAM0_BASE  (0x44000000UL)
+#define DSP_SRAM1_BASE  (0x44040000UL)
+
 #define APB0_BASE       (0x40000000UL)
 #define APB1_BASE       (0x40010000UL)
 #define AHB_BASE        (0x41000000UL)

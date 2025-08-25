@@ -93,6 +93,11 @@ uint32_t S300_I2S_ReadLR(S300_I2S_Id id);
 /* DMA helper */
 void S300_I2S_DmaEnable(S300_I2S_Id id, uint8_t tx_block, uint8_t rx_block, uint8_t tx_ch_mask, uint8_t rx_ch_mask);
 
+/* Helpers: get RX/TX DMA data window physical addresses for channel 0
+    (equivalent to &I2S_RXDMA(EM_I2Sx) and &I2S_TXDMA(EM_I2Sx) in demo) */
+uintptr_t S300_I2S_GetRxDataAddr(S300_I2S_Id id);
+uintptr_t S300_I2S_GetTxDataAddr(S300_I2S_Id id);
+
 #ifdef __cplusplus
 }
 #endif

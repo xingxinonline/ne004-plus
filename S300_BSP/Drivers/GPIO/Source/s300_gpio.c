@@ -122,8 +122,6 @@ int S300_GPIO_ConfigPull(uint32_t io, s300_gpio_pull_t pull)
     uint32_t v = *data;
     if (pull == S300_GPIO_PULL_UP) v |= (1u << shift); else v &= ~(1u << shift);
     *data = v;
-    /* Ensure IO is in IO mode in matrix */
-    S300_IOMAT_SetIoFunc(io, 2u);
     return 0;
 }
 

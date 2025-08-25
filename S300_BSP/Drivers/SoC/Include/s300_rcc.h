@@ -248,6 +248,15 @@ int S300_RCC_WaitPllLock(uint32_t lock_mask, uint32_t timeout_cycles);
 /* Wait on DSP PLL lock status (DSP RCC 0x24). Same contract as above. */
 int S300_DSP_RCC_WaitPllLock(uint32_t lock_mask, uint32_t timeout_cycles);
 
+/* Lock status bits (aligned with original demo definitions): */
+#define S300_RCC_PLL_LOCK_CM4    (1u << 0)
+#define S300_RCC_PLL_LOCK_AUDIO  (1u << 1)
+#define S300_RCC_PLL_LOCK_ETH    (1u << 2)
+
+/* PLL control helpers (only what we need for audio to mirror demo flow) */
+/* Set or clear BYPASS bit (bit 25) in AUD_PLL_CTL2 */
+void S300_RCC_SetAudioPllBypass(uint8_t enable);
+
 /* ===== Audio/MM performance clock and reset generic helpers (mask based) ===== */
 void S300_RCC_EnableAudioPerfMask(uint32_t mask);
 void S300_RCC_DisableAudioPerfMask(uint32_t mask);

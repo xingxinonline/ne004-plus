@@ -1,6 +1,7 @@
 #include "s300_wm8978.h"
 #include "s300_i2c.h"
 #include <string.h>
+#include <stdio.h>
 
 /* WM8978 使用 9-bit register addressing 合并在 16-bit 数据中：
    I2C 写入为两字节：
@@ -19,9 +20,21 @@ static int wm8978_write_reg(const S300_WM8978_Bus *bus, uint8_t reg, uint16_t va
     uint8_t buf[2];
     buf[0] = (uint8_t)((reg << 1) | ((val >> 8) & 0x1));
     buf[1] = (uint8_t)(val & 0xFF);
+    /* optional: peek I2C status */
+    uint32_t st_before = S300_I2C_Status(bus->i2c_idx);
     int rc = S300_I2C_WriteBytes(bus->i2c_idx, S300_WM8978_I2C_ADDR, buf, 2, 1, 50);
-    if (rc == 0) s_reg_cache[reg] = val;
-    return rc;
+    uint32_t st_after = S300_I2C_Status(bus->i2c_idx);
+    if (rc != 2) {
+        printf("[WM8978/I2C] write reg 0x%02X val 0x%03X rc=%d st[b,a]=[0x%08lX,0x%08lX]\r\n",
+               reg, (unsigned)val & 0x1FFu, rc, (unsigned long)st_before, (unsigned long)st_after);
+    }
+    if (rc == 2) {
+        /* success: wrote 2 bytes */
+        s_reg_cache[reg] = val;
+        return 0;
+    }
+    /* on failure or partial write, return negative when possible */
+    return (rc < 0) ? rc : -1;
 }
 
 static uint16_t wm8978_read_cache(uint8_t reg)

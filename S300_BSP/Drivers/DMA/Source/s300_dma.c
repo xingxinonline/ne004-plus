@@ -6,8 +6,8 @@
 /* Assumptions: Two DMACs with 1MB spacing in old code. Provide overridable base. */
 static S300_DMA_Instance s_dma[2] =
 {
-    { .base = 0x44000000u }, /* default guess; adjust via S300_DMA_SetBase */
-    { .base = 0x45000000u },
+    { .base = 0x41000000u }, /* DMA0_M4 base per docs */
+    { .base = 0x42000000u }, /* DMA1_M4 if present; can be overridden */
 };
 
 #define DMAC_REG(id, off) (*(volatile uint32_t *)((s_dma[(int)(id)].base) + (uint32_t)(off)))
@@ -96,16 +96,29 @@ void S300_DMA_GlobalEnable(S300_DMA_ID id, int enable)
 
 void S300_DMA_ClearAllInterrupts(S300_DMA_ID id)
 {
-    DMAC_REG(id, DMAC_MaskTfr) = 0xFF00u;
-    DMAC_REG(id, DMAC_MaskBlock) = 0xFF00u;
-    DMAC_REG(id, DMAC_MaskSrcTran) = 0xFF00u;
-    DMAC_REG(id, DMAC_MaskDstTran) = 0xFF00u;
-    DMAC_REG(id, DMAC_MaskErr) = 0xFF00u;
+    /* 仅清除 pending 标志，不修改掩码配置，避免误屏蔽中断 */
     DMAC_REG(id, DMAC_ClearTfr) = 0xFFu;
     DMAC_REG(id, DMAC_ClearBlock) = 0xFFu;
     DMAC_REG(id, DMAC_ClearSrcTran) = 0xFFu;
     DMAC_REG(id, DMAC_ClearDstTran) = 0xFFu;
     DMAC_REG(id, DMAC_ClearErr) = 0xFFu;
+}
+
+/* 解除所有通道、所有类型的中断屏蔽。
+     说明：根据 DW DMAC 规范，Mask 寄存器写入格式为 [15:8]=写使能、[7:0]=目标掩码；
+                掩码位 1 表示取消屏蔽(UNMASK)，0 表示屏蔽(MASK)。
+                因此：
+                    - 写 0xFFFF => 同时写使能且将 8 个通道掩码均置 1，即“全部取消屏蔽”。
+                    - 写 0xFF00 => 仅写使能且掩码写 0，即“全部屏蔽”。
+                本函数使用 0xFFFF 以解除全部屏蔽；旧版 demo 的 0xFF00 含义相反（会屏蔽全部）。 */
+void S300_DMA_UnmaskAllInterrupts(S300_DMA_ID id)
+{
+    /* 上半字(15:8)=写使能，低半字(7:0)=目标掩码；1=unmask(允许)，0=mask(屏蔽)。 */
+    DMAC_REG(id, DMAC_MaskTfr)     = 0x0000FFFFu;
+    DMAC_REG(id, DMAC_MaskBlock)   = 0x0000FFFFu;
+    DMAC_REG(id, DMAC_MaskSrcTran) = 0x0000FFFFu;
+    DMAC_REG(id, DMAC_MaskDstTran) = 0x0000FFFFu;
+    DMAC_REG(id, DMAC_MaskErr)     = 0x0000FFFFu;
 }
 
 static inline uint32_t width_bytes(S300_DMA_TrWidth w)
@@ -118,8 +131,12 @@ int S300_DMA_ConfigStd(S300_DMA_ID id, S300_DMA_Channel ch,
                        S300_DMA_TrWidth width)
 {
     uint32_t ch_bit = 1u << (uint32_t)ch;
-    /* Disable DMAC, ensure channel idle */
-    while (DMAC_REG(id, DMAC_ChEnReg) & ch_bit) { /* wait */ }
+    /* Ensure channel disabled using write-enable semantics, then wait (bounded) */
+    DMAC_REG(id, DMAC_ChEnReg) = (ch_bit << 8) | 0u; /* disable ch */
+    {
+        volatile uint32_t spins = 1000000u;
+        while ((DMAC_REG(id, DMAC_ChEnReg) & ch_bit) && --spins) { /* wait */ }
+    }
     S300_DMA_ClearAllInterrupts(id);
     DMAC_CH_REG(id, ch, DMAC_SAR) = src;
     DMAC_CH_REG(id, ch, DMAC_DAR) = dst;
@@ -129,7 +146,9 @@ int S300_DMA_ConfigStd(S300_DMA_ID id, S300_DMA_Channel ch,
     DMAC_CH_REG(id, ch, DMAC_CTLH) = (xfers & 0xFFFu); /* 12-bit block size */
     /* CTLL fields build */
     uint32_t ctll = 0;
-    /* int_en=0, d/src width, inc, burst size=1, type M2M FD */
+    /* int_en=1 使能该通道的中断，后续由 Mask 寄存器选择具体事件；
+        其余：d/src width, inc, burst size=1, type M2M FD */
+    ctll |= 1u; /* bit0 int_en */
     ctll |= ((uint32_t)width & 0x7u) << 1;   /* src_tr_width at [3:1], we'll set with same for dst below */
     ctll |= ((uint32_t)width & 0x7u) << 4;   /* dst_tr_width at [6:4] */
     /* dinc/sinc: 0=increment */
@@ -229,13 +248,14 @@ int S300_DMA_SetHandshake(S300_DMA_ID id, S300_DMA_Channel ch, S300_DMA_Handshak
     uint32_t cfgh = DMAC_CH_REG(id, ch, DMAC_CFGH);
     uint32_t cfgl = DMAC_CH_REG(id, ch, DMAC_CFGL);
     /* external handshake => hs_sel_* = 0, else software */
-    if (src != S300_DMA_HS_NONE) cfgl &= ~(1u << 10);
-    else cfgl |= (1u << 10);
-    if (dst != S300_DMA_HS_NONE) cfgl &= ~(1u << 11);
+    /* DW DMAC: CFGL bit11=HS_SEL_SRC, bit10=HS_SEL_DST */
+    if (src != S300_DMA_HS_NONE) cfgl &= ~(1u << 11);
     else cfgl |= (1u << 11);
-    /* polarity active high */
-    cfgl |= (1u << 18) | (1u << 19);
-    /* peripheral index placement depends on IP options; use src_per/dest_per fields [10:7]/[14:11] of CFGH per common DW DMAC */
+    if (dst != S300_DMA_HS_NONE) cfgl &= ~(1u << 10);
+    else cfgl |= (1u << 10);
+    /* polarity active high: CFGH bit18=SRC_HS_POL, bit19=DST_HS_POL */
+    cfgh |= (1u << 18) | (1u << 19);
+    /* peripheral index placement: src_per [10:7], dest_per [14:11] of CFGH */
     cfgh &= ~((0xFu << 7) | (0xFu << 11));
     if (src != S300_DMA_HS_NONE) cfgh |= ((uint32_t)src & 0xFu) << 7;
     if (dst != S300_DMA_HS_NONE) cfgh |= ((uint32_t)dst & 0xFu) << 11;
@@ -247,33 +267,22 @@ int S300_DMA_SetHandshake(S300_DMA_ID id, S300_DMA_Channel ch, S300_DMA_Handshak
 void S300_DMA_SetInterrupts(S300_DMA_ID id, S300_DMA_Channel ch, uint32_t types, int enable)
 {
     uint32_t ch_bit = 1u << (uint32_t)ch;
-    volatile uint32_t *m_tfr  = &DMAC_REG(id, DMAC_MaskTfr);
-    volatile uint32_t *m_blk  = &DMAC_REG(id, DMAC_MaskBlock);
-    volatile uint32_t *m_st   = &DMAC_REG(id, DMAC_MaskSrcTran);
-    volatile uint32_t *m_dt   = &DMAC_REG(id, DMAC_MaskDstTran);
-    volatile uint32_t *m_err  = &DMAC_REG(id, DMAC_MaskErr);
-    if (enable)
-    {
-        if (types & 0x8) set_bits(m_tfr,  ch_bit << 8 | ch_bit);
-        if (types & 0x1) set_bits(m_blk,  ch_bit << 8 | ch_bit);
-        if (types & 0x2) set_bits(m_st,   ch_bit << 8 | ch_bit);
-        if (types & 0x4) set_bits(m_dt,   ch_bit << 8 | ch_bit);
-        set_bits(m_err,  ch_bit << 8 | ch_bit);
-    }
-    else
-    {
-        if (types & 0x8) clr_bits(m_tfr,  ch_bit << 8 | ch_bit);
-        if (types & 0x1) clr_bits(m_blk,  ch_bit << 8 | ch_bit);
-        if (types & 0x2) clr_bits(m_st,   ch_bit << 8 | ch_bit);
-        if (types & 0x4) clr_bits(m_dt,   ch_bit << 8 | ch_bit);
-        clr_bits(m_err,  ch_bit << 8 | ch_bit);
-    }
+    /* DW DMAC 掩码寄存器：写 bit(i+8)=1 以更新 bit(i)；bit(i)=1 表示 Unmask(允许)，bit(i)=0 表示 Mask(屏蔽)。 */
+    uint32_t val_unmask = (ch_bit << 8) | ch_bit;   /* 允许：写 1 */
+    uint32_t val_mask   = (ch_bit << 8) | 0u;       /* 屏蔽：写 0 */
+    uint32_t v = enable ? val_unmask : val_mask;
+    /* 仅对调用者指定的类型更新掩码，避免误改其它类型导致语义变化 */
+    if (types & S300_DMA_INT_TFR)      DMAC_REG(id, DMAC_MaskTfr)     = v;
+    if (types & S300_DMA_INT_BLOCK)    DMAC_REG(id, DMAC_MaskBlock)   = v;
+    if (types & S300_DMA_INT_SRCTRAN)  DMAC_REG(id, DMAC_MaskSrcTran) = v;
+    if (types & S300_DMA_INT_DSTTRAN)  DMAC_REG(id, DMAC_MaskDstTran) = v;
+    if (types & S300_DMA_INT_ERR)      DMAC_REG(id, DMAC_MaskErr)     = v;
 }
 
 void S300_DMA_Start(S300_DMA_ID id, S300_DMA_Channel ch)
 {
     uint32_t ch_bit = 1u << (uint32_t)ch;
-    /* Enable global */
+    /* Global enable should be ensured by caller once; keep idempotent here */
     S300_DMA_GlobalEnable(id, 1);
     /* Channel enable: write (ch<<8 | ch) */
     DMAC_REG(id, DMAC_ChEnReg) |= (ch_bit << 8) | ch_bit;
@@ -282,11 +291,35 @@ void S300_DMA_Start(S300_DMA_ID id, S300_DMA_Channel ch)
 void S300_DMA_Stop(S300_DMA_ID id, S300_DMA_Channel ch)
 {
     uint32_t ch_bit = 1u << (uint32_t)ch;
-    DMAC_REG(id, DMAC_ChEnReg) &= ~((ch_bit << 8) | ch_bit);
+    /* Proper disable: write-enable bit with value 0 for the channel */
+    DMAC_REG(id, DMAC_ChEnReg) = (ch_bit << 8) | 0u;
 }
 
 int S300_DMA_IsBusy(S300_DMA_ID id, S300_DMA_Channel ch)
 {
     uint32_t ch_bit = 1u << (uint32_t)ch;
     return (DMAC_REG(id, DMAC_ChEnReg) & ch_bit) ? 1 : 0;
+}
+
+uint32_t S300_DMA_GetStatusTfr(S300_DMA_ID id)
+{
+    return DMAC_REG(id, DMAC_StatusTfr);
+}
+uint32_t S300_DMA_GetStatusBlock(S300_DMA_ID id)
+{
+    return DMAC_REG(id, DMAC_StatusBlock);
+}
+uint32_t S300_DMA_GetStatusInt(S300_DMA_ID id)
+{
+    return DMAC_REG(id, DMAC_StatusInt);
+}
+
+void S300_DMA_ClearPending(S300_DMA_ID id, uint8_t chMask, uint32_t types)
+{
+    uint32_t m = (uint32_t)chMask & 0xFFu;
+    if (types & S300_DMA_INT_TFR)     DMAC_REG(id, DMAC_ClearTfr)     = m;
+    if (types & S300_DMA_INT_BLOCK)   DMAC_REG(id, DMAC_ClearBlock)   = m;
+    if (types & S300_DMA_INT_SRCTRAN) DMAC_REG(id, DMAC_ClearSrcTran) = m;
+    if (types & S300_DMA_INT_DSTTRAN) DMAC_REG(id, DMAC_ClearDstTran) = m;
+    if (types & S300_DMA_INT_ERR)     DMAC_REG(id, DMAC_ClearErr)     = m;
 }

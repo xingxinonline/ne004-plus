@@ -344,3 +344,13 @@ const S300_RCC_PllCfg S300_PLL_PRESET_CM4_100M = { .refdiv=8, .fbdiv=400, .frac=
 const S300_RCC_PllCfg S300_PLL_PRESET_AUDIO_12M = { .refdiv=3, .fbdiv=129, .frac=500000, .postdiv1=7, .postdiv2=6 };
 const S300_RCC_PllCfg S300_PLL_PRESET_MM_100M = { .refdiv=8, .fbdiv=400, .frac=0, .postdiv1=3, .postdiv2=2 };
 
+/* ===== PLL control helpers ===== */
+void S300_RCC_SetAudioPllBypass(uint8_t enable)
+{
+	volatile uint32_t *r = &S300_RCC_REG(S300_RCC_OFS_AUD_PLL_CTL2);
+	uint32_t v = *r;
+	if (enable) v |=  (1u << 25);
+	else        v &= ~(1u << 25);
+	*r = v;
+}
+

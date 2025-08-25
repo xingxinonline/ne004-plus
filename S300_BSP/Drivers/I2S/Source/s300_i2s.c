@@ -51,7 +51,9 @@ typedef volatile struct {
     uint32_t TFCR0;    /* 0x4C */
     uint32_t RFF0;     /* 0x50 */
     uint32_t TFF0;     /* 0x54 */
-    uint32_t _rsvd[0x200/4 - 0x15];
+     /* 0x00..0x54 共 22 个 32bit 寄存器，DMACR 位于 0x200。
+         故需保留 (0x200 - 0x58)/4 = 106 个 32bit 空洞，使 DMACR 正好在 +0x200。 */
+     uint32_t _rsvd[0x200/4 - 0x16];
     uint32_t DMACR;    /* 0x200 */
 } S300_I2S_Regs;
 
@@ -210,15 +212,15 @@ void S300_I2S_SetClockGen(S300_I2S_Id id, S300_I2S_WordSelectSize wss, S300_I2S_
 void S300_I2S_EnableRx(S300_I2S_Id id, uint8_t en)
 {
     S300_I2S_Regs *r = i2s_base(id);
-    if (en) { r->IRER |= IRER_RXEN; r->IER |= IER_REN; }
-    else { r->IRER &= ~IRER_RXEN; r->IER &= ~IER_REN; }
+    if (en) { r->IRER |= IRER_RXEN; }
+    else { r->IRER &= ~IRER_RXEN; }
 }
 
 void S300_I2S_EnableTx(S300_I2S_Id id, uint8_t en)
 {
     S300_I2S_Regs *r = i2s_base(id);
-    if (en) { r->ITER |= ITER_TXEN; r->IER |= IER_TEN; }
-    else { r->ITER &= ~ITER_TXEN; r->IER &= ~IER_TEN; }
+    if (en) { r->ITER |= ITER_TXEN; }
+    else { r->ITER &= ~ITER_TXEN; }
 }
 
 void S300_I2S_FlushRx(S300_I2S_Id id)
@@ -276,12 +278,30 @@ uint32_t S300_I2S_ReadLR(S300_I2S_Id id)
 void S300_I2S_DmaEnable(S300_I2S_Id id, uint8_t tx_block, uint8_t rx_block, uint8_t tx_ch_mask, uint8_t rx_ch_mask)
 {
     S300_I2S_Regs *r = i2s_base(id);
-    uint32_t v = r->DMACR;
-    if (rx_block) v |= (1u << 16); else v &= ~(1u << 16);
-    if (tx_block) v |= (1u << 17); else v &= ~(1u << 17);
-    /* 通道 0..3 使能位 */
-    v &= ~((0xFu << 0) | (0xFu << 8));
-    v |= ((uint32_t)(rx_ch_mask & 0xF) << 0);
-    v |= ((uint32_t)(tx_ch_mask & 0xF) << 8);
-    r->DMACR = v;
+     /* 与参考 demo 保持一致：打开块使能并允许 RX/TX 四个 DMA 通道（0..3）。
+         一些 SoC 变体要求先使能这些位，随后按需映射具体通道寄存器。 */
+     uint32_t v = 0;
+     if (rx_block) v |= (1u << 16);
+     if (tx_block) v |= (1u << 17);
+     v |= 0x00000F0Fu; /* 低8位：RX[3:0]，次低8位：TX[3:0] 全开 */
+     r->DMACR = v;
+
+     /* 缺省将 RXDMA_CH0 / TXDMA_CH0 映射到 0（对应 DMA 通道0）。
+         按需可扩展更多映射寄存器，这里只设置通道0的映射。 */
+     volatile uint32_t *rx_ch0 = (volatile uint32_t *)(((uintptr_t)r) + 0x204u);
+     volatile uint32_t *tx_ch0 = (volatile uint32_t *)(((uintptr_t)r) + 0x214u);
+     *rx_ch0 = 0u;
+     *tx_ch0 = 0u;
+}
+
+uintptr_t S300_I2S_GetRxDataAddr(S300_I2S_Id id)
+{
+    /* Use dedicated DMA RX data window (compatible with legacy I2S_RXDMA): base + 0x1C0 */
+    return ((uintptr_t)i2s_base(id)) + 0x1C0u;
+}
+
+uintptr_t S300_I2S_GetTxDataAddr(S300_I2S_Id id)
+{
+    /* Use dedicated DMA TX data window (compatible with legacy I2S_TXDMA): base + 0x1C8 */
+    return ((uintptr_t)i2s_base(id)) + 0x1C8u;
 }

@@ -112,6 +112,7 @@ void S300_DMA_EnableClock(S300_DMA_ID id, int enable);
 /* Core controls */
 void S300_DMA_GlobalEnable(S300_DMA_ID id, int enable);
 void S300_DMA_ClearAllInterrupts(S300_DMA_ID id);
+void S300_DMA_UnmaskAllInterrupts(S300_DMA_ID id);
 
 /* Standard transfer config (memory-to-memory default) */
 int S300_DMA_ConfigStd(S300_DMA_ID id, S300_DMA_Channel ch,
@@ -132,8 +133,16 @@ int  S300_DMA_SetLLI(S300_DMA_ID id, S300_DMA_Channel ch, S300_DMA_LLI *lli_head
 int S300_DMA_SetHandshake(S300_DMA_ID id, S300_DMA_Channel ch, S300_DMA_Handshake src, S300_DMA_Handshake dst);
 
 /* Interrupts */
-typedef enum { S300_DMA_INT_BLOCK = 0x1, S300_DMA_INT_SRCTRAN = 0x2, S300_DMA_INT_DSTTRAN = 0x4, S300_DMA_INT_TFR = 0x8 } S300_DMA_IntType;
+typedef enum { S300_DMA_INT_BLOCK = 0x1, S300_DMA_INT_SRCTRAN = 0x2, S300_DMA_INT_DSTTRAN = 0x4, S300_DMA_INT_TFR = 0x8, S300_DMA_INT_ERR = 0x10 } S300_DMA_IntType;
 void S300_DMA_SetInterrupts(S300_DMA_ID id, S300_DMA_Channel ch, uint32_t types, int enable);
+
+/* Status helpers */
+uint32_t S300_DMA_GetStatusTfr(S300_DMA_ID id);    /* StatusTfr */
+uint32_t S300_DMA_GetStatusBlock(S300_DMA_ID id);  /* StatusBlock */
+uint32_t S300_DMA_GetStatusInt(S300_DMA_ID id);    /* StatusInt (bypass sample) */
+
+/* Clear pending by channel mask and types (W1C). chMask: bit0..7 -> CH0..CH7. */
+void S300_DMA_ClearPending(S300_DMA_ID id, uint8_t chMask, uint32_t types);
 
 /* Run-time */
 void S300_DMA_Start(S300_DMA_ID id, S300_DMA_Channel ch);

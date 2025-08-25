@@ -29,46 +29,48 @@ g_pfnVectors:
     .word 0
     .word PendSV_Handler
     .word SysTick_Handler
-    /* Device IRQs start here (index 0 corresponds to first device IRQ) */
-    .word TIMER0_IRQHandler     /* 0 */
-    .word TIMER1_IRQHandler     /* 1 */
-    .word TIMER2_IRQHandler     /* 2 */
-    .word TIMER3_IRQHandler     /* 3 */
-    .word TIMER4_IRQHandler     /* 4 */
-    .word TIMER5_IRQHandler     /* 5 */
-    .word WDT0_IRQHandler       /* 6 */
-    .word WDT1_IRQHandler       /* 7 */
-    .word WDT2_IRQHandler       /* 8 */
-    .word WDT3_IRQHandler       /* 9 */
-    .word N_INTR_IRQHandler     /* 10 */
-    .word S_INTR_IRQHandler     /* 11 */
-    .word FLASH_IRQHandler      /* 12 */
-    .word LCD_IRQHandler        /* 13 */
-    .word OV5640_IRQHandler     /* 14 */
-    .word UART0_IRQHandler      /* 15 */
-    .word UART1_IRQHandler      /* 16 */
-    .word UART2_IRQHandler      /* 17 */
-    .word UART3_IRQHandler      /* 18 */
-    .word I2C0_IRQHandler       /* 19 */
-    .word I2C1_IRQHandler       /* 20 */
-    .word I2C2_IRQHandler       /* 21 */
-    .word I2C3_IRQHandler       /* 22 */
-    .word GPIO_IRQHandler       /* 23 */
-    .word I2S0_IRQHandler       /* 24 */
-    .word I2S1_IRQHandler       /* 25 */
-    .word PWM_IRQHandler        /* 26 */
-    .word DMA0_IRQHandler       /* 27 */
-    .word DMA1_IRQHandler       /* 28 */
-    .word SPI0_IRQHandler       /* 29 */
-    .word SPI1_IRQHandler       /* 30 */
-    .word SDIO0_IRQHandler      /* 31 */
-    .word SDIO1_IRQHandler      /* 32 */
-    .word AON_GPIO_IRQHandler   /* 33 */
-    .word SSI1_IRQHandler       /* 34 */
-    .word SSI0_IRQHandler       /* 35 */
-    .word ETH_IRQHandler        /* 36 */
-    .word WDT_RST_IRQHandler    /* 37 */
-    .word RTC_IRQHandler        /* 38 */
+     /* Device IRQs start here (index 0 corresponds to first device IRQ)
+         Reordered to follow cortex-m4-bsp/driver/interrupt.h emINUM definition */
+     .word TIMER0_IRQHandler     /* 0  EM_INUM_TIMER0 */
+     .word TIMER1_IRQHandler     /* 1  EM_INUM_TIMER1 */
+     .word TIMER2_IRQHandler     /* 2  EM_INUM_TIMER2 */
+     .word TIMER3_IRQHandler     /* 3  EM_INUM_TIMER3 */
+     .word TIMER4_IRQHandler     /* 4  EM_INUM_TIMER4 */
+     .word TIMER5_IRQHandler     /* 5  EM_INUM_TIMER5 */
+     .word WDT0_IRQHandler       /* 6  EM_INUM_WDT0 */
+     .word WDT1_IRQHandler       /* 7  EM_INUM_WDT1 */
+     .word WDT2_IRQHandler       /* 8  EM_INUM_WDT2 */
+     .word WDT3_IRQHandler       /* 9  EM_INUM_WDT3 */
+     .word N_INTR_IRQHandler     /* 10 EM_INUM_N */
+     .word S_INTR_IRQHandler     /* 11 EM_INUM_S */
+     .word FLASH_IRQHandler      /* 12 EM_INUM_FLASH */
+     .word UART0_IRQHandler      /* 13 EM_INUM_UART0 */
+     .word UART1_IRQHandler      /* 14 EM_INUM_UART1 */
+     .word UART2_IRQHandler      /* 15 EM_INUM_UART2 */
+     .word UART3_IRQHandler      /* 16 EM_INUM_UART3 */
+     .word I2C0_IRQHandler       /* 17 EM_INUM_I2C0 */
+     .word I2C1_IRQHandler       /* 18 EM_INUM_I2C1 */
+     .word I2C2_IRQHandler       /* 19 EM_INUM_I2C2 */
+     .word I2C3_IRQHandler       /* 20 EM_INUM_I2C3 */
+     .word GPIO_IRQHandler       /* 21 EM_INUM_GPIO */
+     .word MAIL_IRQHandler       /* 22 EM_INUM_MAIL */
+     .word I2S0_IRQHandler       /* 23 EM_INUM_I2S0 */
+     .word I2S1_IRQHandler       /* 24 EM_INUM_I2S1 */
+     .word PWM_IRQHandler        /* 25 EM_INUM_PWM */
+     .word GMAC_IRQHandler       /* 26 EM_INUM_GMAC */
+     .word DMA0_IRQHandler       /* 27 EM_INUM_DMA0 */
+     .word DMA1_IRQHandler       /* 28 EM_INUM_DMA1 */
+     .word SPI0_IRQHandler       /* 29 EM_INUM_SPI0 */
+     .word SPI1_IRQHandler       /* 30 EM_INUM_SPI1 */
+     .word LCD_IRQHandler        /* 31 EM_INUM_LCD */
+     .word OV5640_IRQHandler     /* 32 EM_INUM_OV5640 */
+     .word SDIO0_IRQHandler      /* 33 EM_INUM_SDIO0 */
+     .word SDIO1_IRQHandler      /* 34 EM_INUM_SDIO1 */
+     .word AON_GPIO_IRQHandler   /* 35 EM_INUM_AON_GPIO */
+     .word AON_I2S1_IRQHandler   /* 36 EM_INUM_AON_I2S1 */
+     .word AON_I2S0_IRQHandler   /* 37 EM_INUM_AON_I2S0 */
+     .word WDT_IRQHandler        /* 38 EM_INUM_WDT */
+     .word RTC_IRQHandler        /* 39 EM_INUM_RTC */
 .size g_pfnVectors, .-g_pfnVectors
 
 /* Code section */
@@ -180,6 +182,9 @@ S_INTR_IRQHandler: b .
 .weak FLASH_IRQHandler
 .thumb_func
 FLASH_IRQHandler: b .
+.weak MAIL_IRQHandler
+.thumb_func
+MAIL_IRQHandler: b .
 .weak LCD_IRQHandler
 .thumb_func
 LCD_IRQHandler: b .
@@ -234,6 +239,12 @@ SPI0_IRQHandler: b .
 .weak SPI1_IRQHandler
 .thumb_func
 SPI1_IRQHandler: b .
+.weak SSI0_IRQHandler
+.thumb_func
+SSI0_IRQHandler: b .
+.weak SSI1_IRQHandler
+.thumb_func
+SSI1_IRQHandler: b .
 .weak SDIO0_IRQHandler
 .thumb_func
 SDIO0_IRQHandler: b .
@@ -243,15 +254,21 @@ SDIO1_IRQHandler: b .
 .weak AON_GPIO_IRQHandler
 .thumb_func
 AON_GPIO_IRQHandler: b .
-.weak SSI1_IRQHandler
+.weak AON_I2S0_IRQHandler
 .thumb_func
-SSI1_IRQHandler: b .
-.weak SSI0_IRQHandler
+AON_I2S0_IRQHandler: b .
+.weak AON_I2S1_IRQHandler
 .thumb_func
-SSI0_IRQHandler: b .
+AON_I2S1_IRQHandler: b .
+.weak GMAC_IRQHandler
+.thumb_func
+GMAC_IRQHandler: b .
 .weak ETH_IRQHandler
 .thumb_func
 ETH_IRQHandler: b .
+.weak WDT_IRQHandler
+.thumb_func
+WDT_IRQHandler: b .
 .weak WDT_RST_IRQHandler
 .thumb_func
 WDT_RST_IRQHandler: b .

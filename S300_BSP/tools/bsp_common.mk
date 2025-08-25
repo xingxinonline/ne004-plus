@@ -11,6 +11,7 @@ CFLAGS += -I$(ROOT)/CMSIS/Device/PiMCHIP/S300/Include -I$(ROOT)/CMSIS/Core/Inclu
 BSP_COMMON_SRCS ?= \
 	$(ROOT)/Drivers/Platform/Source/retarget.c \
 	$(ROOT)/Drivers/SoC/Source/s300_rcc.c \
+	$(ROOT)/Drivers/SoC/Source/s300_intctrl.c \
 	$(ROOT)/Drivers/DMA/Source/s300_dma.c
 
 # Link flags to enable float and long long formatting in newlib-nano

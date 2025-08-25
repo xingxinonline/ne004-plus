@@ -11,6 +11,19 @@
 # 自动收集所有带 GCC/Makefile 的示例目录名称作为 CASE 列表
 EXAMPLES := $(shell ls -1d Projects/Examples/*/GCC 2>/dev/null | sed -E 's#.*/Examples/([^/]+)/GCC#\1#' | sort)
 
+# 兼容用法：允许 `make [dbg|clean] <CASE>` 简写
+# 例如：make dbg DMA_TransferInterrupt
+EXAMPLE_GOAL := $(firstword $(filter $(EXAMPLES),$(MAKECMDGOALS)))
+ifneq ($(strip $(EXAMPLE_GOAL)),)
+ifndef CASE
+CASE := $(EXAMPLE_GOAL)
+endif
+endif
+
+# 吞掉与示例同名的目标，避免 make 认为它是显式目标报错
+.PHONY: $(EXAMPLES)
+$(EXAMPLES): ;
+
 # 目标示例目录（默认 UART_HelloWorld）
 CASE ?= UART_HelloWorld
 EXAMPLE_DIR := Projects/Examples/$(CASE)/GCC
@@ -70,7 +83,10 @@ help:
 	@echo "用法："
 	@echo "  make list"
 	@echo "  make [CASE=<示例名>]         # 构建（默认 CASE=UART_HelloWorld）"
+	@echo "  make <示例名>                # 构建（简写，例如: make DMA_TransferInterrupt）"
 	@echo "  make dbg CASE=<示例名>        # 调试（调用示例内的 gdb 脚本）"
+	@echo "  make dbg <示例名>            # 调试（简写，例如: make dbg DMA_TransferInterrupt）"
 	@echo "  make clean CASE=<示例名>      # 清理"
+	@echo "  make clean <示例名>          # 清理（简写）"
 	@echo "  make clean-all               # 清理全部"
 

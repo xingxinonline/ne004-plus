@@ -11,12 +11,15 @@
 
 static inline void uart_tx_blocking(uint32_t idx, char c)
 {
-    uint32_t base = UARTn_BASE(idx);
-    while (!((UART_USRn(base) & (1u << 1)) || (UART_LSRn(base) & (1u << 5))))
+    const uint32_t UART0_BASE = 0x40010000u;
+    uint32_t base = UART0_BASE + (idx * 0x1000u);
+    /* Wait until TX FIFO not full or THR empty */
+    while (!(((*(volatile uint32_t *)(base + 0x7Cu)) & (1u << 1)) ||
+             ((*(volatile uint32_t *)(base + 0x14u)) & (1u << 5))))
     {
         __NOP();
     }
-    UART_THRn(base) = (uint32_t)c;
+    (*(volatile uint32_t *)(base + 0x00u)) = (uint32_t)c; /* THR */
 }
 
 int _write(int fd, const void *buf, size_t count)

@@ -34,21 +34,27 @@ static void uart_set_baud(uint32_t base, uint32_t baud)
         div += 1u;
     }
     if (div == 0u) div = 1u;
-    UART_LCRn(base) |= 0x80;
-    UART_DLLn(base) = div & 0xFFu;
-    UART_DLHn(base) = (div >> 8) & 0xFFu;
-    UART_LCRn(base) &= ~0x80u;
-    UART_DLFn(base) = dlf & 0x0Fu;
+    /* LCR |= DLAB */
+    (*(volatile uint32_t *)(base + 0x0Cu)) |= 0x80u;
+    /* DLL/DLH */
+    (*(volatile uint32_t *)(base + 0x00u)) = (div & 0xFFu);
+    (*(volatile uint32_t *)(base + 0x04u)) = ((div >> 8) & 0xFFu);
+    /* LCR &= ~DLAB */
+    (*(volatile uint32_t *)(base + 0x0Cu)) &= ~0x80u;
+    /* DLF (1/16 step) */
+    (*(volatile uint32_t *)(base + 0xC0u)) = (dlf & 0x0Fu);
 }
 
 static void uart_init_poll(uint32_t idx, uint32_t baud)
 {
-    uint32_t base = UARTn_BASE(idx);
-    UART_IERn(base) = 0x0u;
-    UART_FCRn(base) = 0x07u;
-    UART_LCRn(base) = 0x03u;
-    UART_MCRn(base) = 0x00u;
-    uart_set_baud(base, 115200u);
+    const uint32_t UART0_BASE = 0x40010000u;
+    uint32_t base = UART0_BASE + (idx * 0x1000u);
+    /* IER, FCR, LCR, MCR */
+    (*(volatile uint32_t *)(base + 0x04u)) = 0x0u;   /* IER */
+    (*(volatile uint32_t *)(base + 0x08u)) = 0x07u;  /* FCR */
+    (*(volatile uint32_t *)(base + 0x0Cu)) = 0x03u;  /* LCR: 8N1 */
+    (*(volatile uint32_t *)(base + 0x10u)) = 0x00u;  /* MCR */
+    uart_set_baud(base, baud);
 }
 
 int main(void)

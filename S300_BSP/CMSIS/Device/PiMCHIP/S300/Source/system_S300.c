@@ -17,8 +17,8 @@ void SystemInit(void)
     __DSB();
     __ISB();
 #endif
-    /* Set vector table base to start of SRAM1 (where .isr_vector is linked) */
-    SCB->VTOR = (uint32_t)0x20000000U; /* matches ld placing vector into SRAM1 */
+    /* Set vector table base to start of SRAM1 where .isr_vector is linked by sram.ld */
+    SCB->VTOR = (uint32_t)0x20000000U;
 }
 
 /* ===== SysTick (moved from systick.c) ===== */

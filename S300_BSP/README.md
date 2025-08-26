@@ -1,20 +1,17 @@
-# S300 BSP Layout
+# S300 Minimal CMSIS BSP
 
-- CMSIS/
-  - Core/Include: CMSIS 5.9.0 core headers
-  - Device/PiMCHIP/S300/Include: SoC headers (device.h, s300.h)
-  - Device/PiMCHIP/S300/Source: system initialization and startup (SystemInit, SysTick, startup)
-- Drivers/
-  - SoC/Include: RCC & IOMUX helpers used by board configs
-  - BSP/Include: BSP facades (BSP_Clock_Init, BSP_UART_Debug_Init, SysTick APIs)
-  - UART: Polling UART driver
-  - GPIO: Minimal GPIO (placeholder, adjust to real spec)
-- Boards/
-  - S300_EVB: Board-level clock & pinmux, debug UART selection via BOARD_UART_DEBUG_ID/BAUD
-- Projects/
-  - Examples/UART_HelloWorld: GCC Makefile project and gdbinit
-- ld/
-  - sram.ld: SRAM boot linker script
+## Kept
 
-Build:
- Top-level `make` builds the UART_HelloWorld example.
+- CMSIS Device: `CMSIS/Device/PiMCHIP/S300/Include` and `.../Source` (SystemInit, SysTick, startup, vector)
+- Linker: `ld/sram.ld` (vector and code in SRAM1, stack at top of SRAM1)
+- Minimal app: `Projects/Minimal` (register-level UART print + SysTick heartbeat)
+
+## Assumptions
+
+- Default 24MHz clock (no RCC reconfiguration)
+- UART index 3 (115200 baud). Adjust `UART_DEBUG_IDX` in `Projects/Minimal/Src/main.c` if required.
+
+## Build
+
+- From `S300_BSP/`: `make` to build the minimal example (`build/s300_minimal.elf`/`.bin`).
+

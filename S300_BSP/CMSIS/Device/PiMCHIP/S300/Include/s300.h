@@ -7,6 +7,8 @@ extern "C" {
 
 #include <stdint.h>
 #include "device.h"
+/* Device memory map and base addresses */
+#include "s300_memmap.h"
 
 /* System Core Clock */
 #define HSE_CLOCK_HZ    (24000000UL)

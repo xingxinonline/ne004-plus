@@ -100,10 +100,10 @@ int main(void)
 #if OV5640_ENABLE_LIGHT
         int lr = ov5640_set_light(&i2c1, saddr, true);
         printf("Enable light: %s\n", lr == 0 ? "OK" : "FAIL");
-        /* 简短预览一段时间后自动关闭，避免常亮 */
-        for (volatile uint32_t i = 0; i < 2400000u; ++i) __asm volatile("nop");
-        int lf = ov5640_set_light(&i2c1, saddr, false);
-        printf("Disable light: %s\n", lf == 0 ? "OK" : "FAIL");
+    /* 简短预览一段时间后自动关闭，避免常亮 */
+    for (volatile uint32_t i = 0; i < 4800000u; ++i) __asm volatile("nop");
+    int lf = ov5640_set_light(&i2c1, saddr, false);
+    printf("Disable light: %s\n", lf == 0 ? "OK" : "FAIL");
 #endif
     }
     /* 可选：打开色条测试图 */

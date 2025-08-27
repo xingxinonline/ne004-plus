@@ -1,0 +1,113 @@
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include "ov5640.h"
+
+/* 取材自原始驱动的初始化表，压缩为关键寄存器配置以演示移植；
+ * 若需完整画质，请替换为完整表（可将大数组拆到独立 .inc 以减小编译单元体积）。
+ */
+static const uint16_t ov5640_init_cfg[][2] =
+{
+    {0x3103, 0x11}, {0x3008, 0x82}, {0x3008, 0x42}, {0x3103, 0x03},
+    {0x3017, 0xFF}, {0x3018, 0xFF}, {0x3034, 0x1A}, {0x3037, 0x13},
+    {0x3108, 0x01}, {0x3630, 0x36}, {0x3631, 0x0E}, {0x3632, 0xE2},
+    {0x3633, 0x12}, {0x3621, 0xE0}, {0x3704, 0xA0}, {0x3703, 0x5A},
+    {0x3715, 0x78}, {0x3717, 0x01}, {0x370B, 0x60}, {0x3705, 0x1A},
+    {0x3905, 0x02}, {0x3906, 0x10}, {0x3901, 0x0A}, {0x3731, 0x12},
+    {0x3600, 0x08}, {0x3601, 0x33}, {0x302D, 0x60}, {0x3620, 0x52},
+    {0x371B, 0x20}, {0x471C, 0x50}, {0x3A13, 0x43}, {0x3A18, 0x00},
+    {0x3A19, 0xF8}, {0x3635, 0x13}, {0x3636, 0x03}, {0x3634, 0x40},
+    {0x3622, 0x01}, {0x3C01, 0x34}, {0x3C04, 0x28}, {0x3C05, 0x98},
+    {0x3C06, 0x00}, {0x3C07, 0x08}, {0x3C08, 0x00}, {0x3C09, 0x1C},
+    {0x3C0A, 0x9C}, {0x3C0B, 0x40}, {0x3810, 0x00}, {0x3811, 0x10},
+    {0x3812, 0x00}, {0x3708, 0x64}, {0x4001, 0x02}, {0x4005, 0x1A},
+    {0x3000, 0x00}, {0x3004, 0xFF}, {0x300E, 0x58}, {0x302E, 0x00},
+};
+
+static const uint16_t ov5640_yuv422_cfg[][2] =
+{
+    {0x4300, 0x30}, {0x501F, 0x00}, {0x3035, 0x41}, {0x3036, 0x69},
+    {0x3C07, 0x07}, {0x3820, 0x41}, {0x3821, 0x00}, {0x3814, 0x31},
+    {0x3815, 0x31}, {0x3808, 0x05}, {0x3809, 0x00}, {0x380A, 0x02}, {0x380B, 0xD0},
+    {0x380C, 0x07}, {0x380D, 0x64}, {0x380E, 0x02}, {0x380F, 0xE4},
+    {0x3813, 0x04}, {0x3618, 0x00}, {0x3612, 0x29}, {0x3709, 0x52},
+    {0x370C, 0x03}, {0x3A02, 0x02}, {0x3A03, 0xE0}, {0x3A14, 0x02},
+    {0x3A15, 0xE0}, {0x4004, 0x02}, {0x3002, 0x1C}, {0x3006, 0xC3},
+    {0x4713, 0x03}, {0x4407, 0x04}, {0x460B, 0x37}, {0x460C, 0x20},
+    {0x4837, 0x16}, {0x3824, 0x04}, {0x5001, 0x83}, {0x3503, 0x00},
+};
+
+static const uint16_t ov5640_colorbar[][2] = { {0x503D, 0x80}, {0x4741, 0x00} };
+static const uint16_t ov5640_colorsq[][2] = { {0x503D, 0x82}, {0x4741, 0x00} };
+
+static int wr(i2c_soft_t *i2c, uint8_t saddr, uint16_t reg, uint8_t val)
+{
+    return i2c_soft_mem_write(i2c, saddr, reg, true, &val, 1);
+}
+
+static void delay_ms_busy(uint32_t ms)
+{
+    /* 简单忙等待，按 24MHz 近似，避免引入定时器依赖 */
+    volatile uint32_t n = ms * 24000u;
+    while (n--) __asm volatile("nop");
+}
+
+int ov5640_init(i2c_soft_t *i2c, uint8_t saddr, ov5640_format_t fmt)
+{
+    /* 复位/上电序列应由上层 GPIO 控制完成，这里仅进行寄存器表配置 */
+    for (size_t i = 0; i < sizeof(ov5640_init_cfg) / sizeof(ov5640_init_cfg[0]); ++i)
+    {
+        uint16_t reg = ov5640_init_cfg[i][0];
+        uint8_t  val = (uint8_t)ov5640_init_cfg[i][1];
+        if (wr(i2c, saddr, reg, val))
+            return -1;
+        /* 写完 0x3008=0x82 软复位后等待至少 5ms */
+        if (reg == 0x3008u && val == 0x82u)
+            delay_ms_busy(5);
+    }
+    /* 额外稳定时间 */
+    delay_ms_busy(10);
+    /* 格式选择：先按 YUV422 表设置，再覆盖 0x4300/0x501F 等关键位 */
+    for (size_t i = 0; i < sizeof(ov5640_yuv422_cfg) / sizeof(ov5640_yuv422_cfg[0]); ++i)
+    {
+        uint16_t reg = ov5640_yuv422_cfg[i][0];
+        uint8_t  val = (uint8_t)ov5640_yuv422_cfg[i][1];
+        if (reg == 0x4300) val = (uint8_t)fmt; /* 输出序列切换 */
+        if (wr(i2c, saddr, reg, val)) return -1;
+    }
+    return 0;
+}
+
+int ov5640_set_color_bar(i2c_soft_t *i2c, uint8_t saddr, bool en)
+{
+    (void)en; /* 当前表为开启色条 */
+    for (size_t i = 0; i < sizeof(ov5640_colorbar) / sizeof(ov5640_colorbar[0]); ++i)
+        if (wr(i2c, saddr, ov5640_colorbar[i][0], (uint8_t)ov5640_colorbar[i][1])) return -1;
+    return 0;
+}
+
+int ov5640_set_color_square(i2c_soft_t *i2c, uint8_t saddr, bool en)
+{
+    (void)en;
+    for (size_t i = 0; i < sizeof(ov5640_colorsq) / sizeof(ov5640_colorsq[0]); ++i)
+        if (wr(i2c, saddr, ov5640_colorsq[i][0], (uint8_t)ov5640_colorsq[i][1])) return -1;
+    return 0;
+}
+
+int ov5640_set_light(i2c_soft_t *i2c, uint8_t saddr, bool en)
+{
+    /* 旧驱动逻辑：en 时依次写 0x3016/0x301C/0x3019 = 0x02；关灯时写 0x3019 = 0x00 */
+    if (en)
+    {
+        if (wr(i2c, saddr, 0x3016, 0x02)) return -1;
+        if (wr(i2c, saddr, 0x301C, 0x02)) return -1;
+        if (wr(i2c, saddr, 0x3019, 0x02)) return -1;
+    }
+    else
+    {
+        if (wr(i2c, saddr, 0x3016, 0x00)) return -1; /* 保守：也清零 3016/301C */
+        if (wr(i2c, saddr, 0x301C, 0x00)) return -1;
+        if (wr(i2c, saddr, 0x3019, 0x00)) return -1;
+    }
+    return 0;
+}

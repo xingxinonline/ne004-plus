@@ -125,6 +125,32 @@ static inline void set_dma_std_address(emDMA dma, uint8_t ch, uint32_t s, uint32
     dma_set_address((dma_idx_t)dma, ch, s, d);
 }
 
+/* Legacy handshake IDs mapped to CFG_H src/dst peripheral select. Keep numeric values consistent with legacy reference. */
+#ifndef EM_HAND_DEFS
+#define EM_HAND_DEFS
+enum {
+    EM_HAND_UART0_RX = 0x00,
+    EM_HAND_UART0_TX,
+    EM_HAND_UART1_RX,
+    EM_HAND_UART1_TX,
+    EM_HAND_UART2_RX,
+    EM_HAND_UART2_TX,
+    EM_HAND_UART3_RX,
+    EM_HAND_UART3_TX,
+    EM_HAND_SPI0_RX,
+    EM_HAND_SPI0_TX,
+    EM_HAND_SPI1_RX,
+    EM_HAND_SPI1_TX,
+    EM_HAND_I2S0_RX,
+    EM_HAND_I2S0_TX,
+    EM_HAND_I2S1_RX,
+    EM_HAND_I2S1_TX,
+    EM_HAND_PDM = 0x100,
+    EM_HAND_AON,
+    EM_HAND_NULL = 0xFFFF,
+};
+#endif /* EM_HAND_DEFS */
+
 #ifdef __cplusplus
 }
 #endif

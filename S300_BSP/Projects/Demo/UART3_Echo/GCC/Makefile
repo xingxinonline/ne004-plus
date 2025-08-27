@@ -19,7 +19,8 @@ CFLAGS  := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 \
    -O2 -ffunction-sections -fdata-sections -fno-builtin -Wall -Wextra \
    -I$(DEVICE_DIR)/Include -I$(ROOT)/CMSIS/Core/Include \
    -I$(ROOT)/Boards/generic_evb \
-   -I$(ROOT)/Drivers/SoC/RCC/Include -I$(ROOT)/Drivers/SoC/GPIO/Include -I$(ROOT)/Drivers/SoC/UART/Include
+   -I$(ROOT)/Drivers/SoC/RCC/Include -I$(ROOT)/Drivers/SoC/GPIO/Include -I$(ROOT)/Drivers/SoC/UART/Include \
+   -I$(ROOT)/Drivers/SoC/I2CSoft/Include
 ASFLAGS := $(CFLAGS)
 
 # Link with newlib nano and enable float printf support
@@ -35,7 +36,8 @@ SRCS := \
          $(ROOT)/Boards/generic_evb/syscalls.c \
    $(ROOT)/Drivers/SoC/RCC/Source/rcc.c \
    $(ROOT)/Drivers/SoC/GPIO/Source/gpio.c \
-   $(ROOT)/Drivers/SoC/UART/Source/uart.c
+   $(ROOT)/Drivers/SoC/UART/Source/uart.c \
+   $(ROOT)/Drivers/SoC/I2CSoft/Source/i2c_soft.c
 
 # 将绝对路径的源码列表转换为以 ROOT 为基准的相对路径，
 # 以便在 build 目录下保留源码的目录结构

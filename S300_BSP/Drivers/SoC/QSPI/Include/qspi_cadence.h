@@ -135,6 +135,8 @@ extern "C" {
 #define W25Q_CMD_WRSR3   0x11u  /* write SR3 only */
 
 int qspi_unlock_all(void);
+/* 控制驱动内部调试打印（默认开启）。带宽测试时建议关闭以避免串口开销影响计时。 */
+void qspi_set_verbose(bool enable);
 
 typedef struct
 {

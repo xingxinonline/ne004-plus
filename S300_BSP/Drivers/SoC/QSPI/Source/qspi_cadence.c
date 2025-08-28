@@ -27,6 +27,12 @@ qspi_cadence_t g_qspi =
     .block_4k_units = 16u /* 16 x 4KB = 64KB */
 };
 
+static bool s_qspi_verbose = true;
+void qspi_set_verbose(bool enable)
+{
+    s_qspi_verbose = enable;
+}
+
 static inline void qspi_enable(bool en)
 {
     uint32_t v = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
@@ -242,7 +248,8 @@ int qspi_unlock_all(void)
     uint8_t s1 = 0, s2 = 0, s3 = 0;
     int rc = qspi_read_status(&s1, &s2, &s3);
     if (rc) return rc;
-    printf("[QSPI] Before unlock SR1=%02X SR2=%02X SR3=%02X\n", s1, s2, s3);
+    if (s_qspi_verbose)
+        printf("[QSPI] Before unlock SR1=%02X SR2=%02X SR3=%02X\n", s1, s2, s3);
     /* Clear SR1 block protect bits BP[2:0]=0, TB=0, SRP0(SRWD)=0; preserve rest */
     uint8_t new1 = s1 & ~((uint8_t)0x3Cu /* BP2:4 + TB */ | (uint8_t)0x80u /* SRP0 */);
     uint8_t new2 = s2 & ~((uint8_t)0x40u /* SRP1 */ | (uint8_t)0x38u /* BP[5:3] */);
@@ -251,7 +258,8 @@ int qspi_unlock_all(void)
     if (rc) return rc;
     /* SR3: typically holds drive strength/latency, no lock bits; keep as-is */
     rc = qspi_read_status(&s1, &s2, &s3);
-    printf("[QSPI] After unlock SR1=%02X SR2=%02X SR3=%02X\n", s1, s2, s3);
+    if (s_qspi_verbose)
+        printf("[QSPI] After unlock SR1=%02X SR2=%02X SR3=%02X\n", s1, s2, s3);
     return rc;
 }
 
@@ -333,6 +341,7 @@ int qspi_page_program(uint32_t addr, const void *buf, uint32_t len)
     if (len > g_qspi.page_size) len = g_qspi.page_size;
     int rc = qspi_wren();
     if (rc) return rc;
+    if (s_qspi_verbose)
     {
         uint8_t s1_dbg = 0;
         (void)qspi_read_status(&s1_dbg, NULL, NULL);
@@ -347,10 +356,12 @@ int qspi_page_program(uint32_t addr, const void *buf, uint32_t len)
             rc = qspi_wren();
             if (rc) return rc;
             (void)qspi_read_status(&s1, NULL, NULL);
-            printf("[QSPI] Retry WREN SR1=%02X (WEL=%u)\n", s1, (unsigned)(!!(s1 & 0x02u)));
+            if (s_qspi_verbose)
+                printf("[QSPI] Retry WREN SR1=%02X (WEL=%u)\n", s1, (unsigned)(!!(s1 & 0x02u)));
             if ((s1 & 0x02u) == 0u)
             {
-                printf("[QSPI] WEL not set before program (SR1=%02X)\n", s1);
+                if (s_qspi_verbose)
+                    printf("[QSPI] WEL not set before program (SR1=%02X)\n", s1);
                 return -2;
             }
         }
@@ -397,14 +408,16 @@ int qspi_page_program(uint32_t addr, const void *buf, uint32_t len)
     wr &= ~((0xFFu) << CQSPI_WR_OPCODE_LSB);
     wr |= (W25Q_CMD_PP << CQSPI_WR_OPCODE_LSB);
     REG32(g_qspi.reg, CQSPI_REG_WR_INSTR) = wr;
-    printf("[QSPI] PP setup: WR_INSTR=%08lX STARTADDR=%06lX BYTES=%lu\n",
-           (unsigned long)wr, (unsigned long)addr, (unsigned long)len);
+    if (s_qspi_verbose)
+        printf("[QSPI] PP setup: WR_INSTR=%08lX STARTADDR=%06lX BYTES=%lu\n",
+               (unsigned long)wr, (unsigned long)addr, (unsigned long)len);
     /* Clear DONE then trigger indirect write */
     REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_DONE;
     REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_START;
-    printf("[QSPI] INDWR after START=%08lX SDRAM=%08lX\n",
-           (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR),
-           (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL));
+    if (s_qspi_verbose)
+        printf("[QSPI] INDWR after START=%08lX SDRAM=%08lX\n",
+               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR),
+               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL));
     /* Small nudge */
     for (volatile uint32_t d = 0; d < 200u; ++d) __NOP();
     /* Write through AHB aperture (FIFO port at fixed base address) in chunks based on free space */
@@ -423,14 +436,15 @@ int qspi_page_program(uint32_t addr, const void *buf, uint32_t len)
         uint32_t free_words = g_qspi.fifo_depth - level_words;
         if (free_words == 0u)
         {
-            if ((++guard % 50000u) == 0u)
-            {
-                printf("[QSPI] waiting WR FIFO space... SDRAM=%08lX INDWR=%08lX WRBYTES=%08lX rem=%lu\n",
-                       (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL),
-                       (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR),
-                       (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES),
-                       (unsigned long)remaining);
-            }
+            if (s_qspi_verbose)
+                if ((++guard % 50000u) == 0u)
+                {
+                    printf("[QSPI] waiting WR FIFO space... SDRAM=%08lX INDWR=%08lX WRBYTES=%08lX rem=%lu\n",
+                           (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL),
+                           (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR),
+                           (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES),
+                           (unsigned long)remaining);
+                }
             if (guard > 1000000u)
             {
                 printf("[QSPI] WR FIFO no space timeout (SDRAM=%08lX INDWR=%08lX WRBYTES=%08lX) remaining=%lu\n",
@@ -459,7 +473,7 @@ int qspi_page_program(uint32_t addr, const void *buf, uint32_t len)
         {
             *ahb8++ = *p++;
         }
-        if (!logged_first_push)
+    if (!logged_first_push && s_qspi_verbose)
         {
             logged_first_push = true;
             uint32_t sdram = REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL);
@@ -494,17 +508,20 @@ int qspi_page_program(uint32_t addr, const void *buf, uint32_t len)
     {
         /* Cancel and dump debug info */
         REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_CANCEL;
-        printf("[QSPI] IndirectWR timeout @0x%06lX len=%lu\n", (unsigned long)addr, (unsigned long)len);
-        printf("  CFG=%08lX RD_INSTR=%08lX WR_INSTR=%08lX SIZE=%08lX\n",
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_CONFIG),
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_RD_INSTR),
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_WR_INSTR),
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SIZE));
-        printf("  SDRAMLEVEL=%08lX IRQSTS=%08lX INDWR=%08lX INDWRBYTES=%08lX\n",
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL),
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_IRQSTATUS),
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR),
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES));
+     if (s_qspi_verbose)
+     {
+         printf("[QSPI] IndirectWR timeout @0x%06lX len=%lu\n", (unsigned long)addr, (unsigned long)len);
+         printf("  CFG=%08lX RD_INSTR=%08lX WR_INSTR=%08lX SIZE=%08lX\n",
+             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_CONFIG),
+             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_RD_INSTR),
+             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_WR_INSTR),
+             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SIZE));
+         printf("  SDRAMLEVEL=%08lX IRQSTS=%08lX INDWR=%08lX INDWRBYTES=%08lX\n",
+             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL),
+             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_IRQSTATUS),
+             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR),
+             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES));
+     }
         uint8_t s1 = 0, s2 = 0, s3 = 0;
         (void)qspi_read_status(&s1, &s2, &s3);
         printf("  SR1=%02X SR2=%02X SR3=%02X\n", s1, s2, s3);
@@ -519,6 +536,7 @@ int qspi_page_program(uint32_t addr, const void *buf, uint32_t len)
             /* WREN before each PP */
             rc = qspi_wren();
             if (rc) return rc;
+            if (s_qspi_verbose)
             {
                 uint8_t s1c = 0;
                 qspi_read_status(&s1c, NULL, NULL);
@@ -541,6 +559,7 @@ int qspi_page_program(uint32_t addr, const void *buf, uint32_t len)
                            (((chunk - 1u) & CQSPI_CMDCTRL_WR_BYTES_MASK) << CQSPI_CMDCTRL_WR_BYTES_LSB);
             rc = qspi_exec_cmd(cmd);
             if (rc) return rc;
+            if (s_qspi_verbose)
             {
                 uint8_t s1d = 0;
                 qspi_read_status(&s1d, NULL, NULL);
@@ -616,14 +635,15 @@ int qspi_read(uint32_t addr, void *buf, uint32_t len)
         uint32_t level = (REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL) >> CQSPI_SDRAMLEVEL_RD_LSB) & CQSPI_SDRAMLEVEL_RD_MASK;
         if (level == 0u)
         {
-            if ((++guard % 500000u) == 0u)
-            {
-                printf("[QSPI] waiting RD FIFO data... SDRAM=%08lX INDREAD=%08lX RDBYTES=%08lX rem=%lu\n",
-                       (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL),
-                       (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD),
-                       (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDBYTES),
-                       (unsigned long)remaining);
-            }
+            if (s_qspi_verbose)
+                if ((++guard % 500000u) == 0u)
+                {
+                    printf("[QSPI] waiting RD FIFO data... SDRAM=%08lX INDREAD=%08lX RDBYTES=%08lX rem=%lu\n",
+                           (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL),
+                           (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD),
+                           (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDBYTES),
+                           (unsigned long)remaining);
+                }
             if (guard > 3000000u)
             {
                 /* Fallback to STIG READ */
@@ -683,14 +703,17 @@ int qspi_read(uint32_t addr, void *buf, uint32_t len)
     if (!done)
     {
         REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD) = CQSPI_INDIRECTRD_CANCEL;
-        printf("[QSPI] IndirectRD timeout @0x%06lX len=%lu, fallback STIG READ\n", (unsigned long)addr, (unsigned long)len);
-        printf("  CFG=%08lX RD_INSTR=%08lX SIZE=%08lX SDRAMLEVEL=%08lX INDREAD=%08lX INDREADBYTES=%08lX\n",
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_CONFIG),
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_RD_INSTR),
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SIZE),
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL),
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD),
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDBYTES));
+        if (s_qspi_verbose)
+        {
+            printf("[QSPI] IndirectRD timeout @0x%06lX len=%lu, fallback STIG READ\n", (unsigned long)addr, (unsigned long)len);
+            printf("  CFG=%08lX RD_INSTR=%08lX SIZE=%08lX SDRAMLEVEL=%08lX INDREAD=%08lX INDREADBYTES=%08lX\n",
+                   (unsigned long)REG32(g_qspi.reg, CQSPI_REG_CONFIG),
+                   (unsigned long)REG32(g_qspi.reg, CQSPI_REG_RD_INSTR),
+                   (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SIZE),
+                   (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL),
+                   (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD),
+                   (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDBYTES));
+        }
         /* STIG fallback */
         uint8_t *pp = (uint8_t *)buf;
         uint32_t remain = len;

@@ -54,14 +54,14 @@ int dma_set_std(dma_idx_t d, uint8_t ch, uint32_t src, uint32_t dst, uint32_t le
     ctl |= ((uint32_t)width << DMA_CTL_SRC_TRW_Pos);
     ctl |= ((uint32_t)DMA_ADDR_INC << DMA_CTL_DINC_Pos);
     ctl |= ((uint32_t)DMA_ADDR_INC << DMA_CTL_SINC_Pos);
-    ctl |= ((uint32_t)DMA_MSIZE_8 << DMA_CTL_DST_MSIZE_Pos);
-    ctl |= ((uint32_t)DMA_MSIZE_8 << DMA_CTL_SRC_MSIZE_Pos);
+    /* 参考 demo 使用最小突发（1x），这样 CTL_L 中不包含 0x9000 差异 */
+    ctl |= ((uint32_t)DMA_MSIZE_1 << DMA_CTL_DST_MSIZE_Pos);
+    ctl |= ((uint32_t)DMA_MSIZE_1 << DMA_CTL_SRC_MSIZE_Pos);
     ctl |= ((uint32_t)DMA_TR_TYPE_M2M_FD << DMA_CTL_TT_FC_Pos);
     C->CTL_L = ctl;
     uint32_t cfg_l = 0u;
     cfg_l |= (7u << DMA_CFG_CH_PRIOR_Pos);
-    cfg_l |= (0x3FFu << DMA_CFG_MAX_ABRST_Pos);
-    /* M2M: use hardware handshake (always ready), polarity default 0 */
+    /* 按参考 demo，默认不设置 MAX_ABRST（保持 0）且保持 HS_SEL/SRC/DST 极性为 0 */
     cfg_l &= ~((1u << DMA_CFGL_HS_SEL_DST_Pos) | (1u << DMA_CFGL_HS_SEL_SRC_Pos));
     cfg_l &= ~((1u << DMA_CFGL_DST_HS_POL_Pos) | (1u << DMA_CFGL_SRC_HS_POL_Pos));
     C->CFG_L = cfg_l;
@@ -124,8 +124,11 @@ int dma_set_handshaking(dma_idx_t d, uint8_t ch, uint16_t src_hs, uint16_t dst_h
     S300_DMA_Channel_TypeDef *C = &dma_get(d)->CH[ch];
     uint32_t v = C->CFG_H;
     v &= ~((0xFu << DMA_CFGH_SRC_PER_Pos) | (0xFu << DMA_CFGH_DST_PER_Pos));
-    v |= ((uint32_t)(src_hs & 0xF) << DMA_CFGH_SRC_PER_Pos);
-    v |= ((uint32_t)(dst_hs & 0xF) << DMA_CFGH_DST_PER_Pos);
+    /* EM_HAND_NULL(0xFFFF) 代表不使用外设握手，需写 0 到寄存器字段 */
+    uint32_t src_val = (src_hs == 0xFFFFu) ? 0u : ((uint32_t)src_hs & 0xFu);
+    uint32_t dst_val = (dst_hs == 0xFFFFu) ? 0u : ((uint32_t)dst_hs & 0xFu);
+    v |= (src_val << DMA_CFGH_SRC_PER_Pos);
+    v |= (dst_val << DMA_CFGH_DST_PER_Pos);
     C->CFG_H = v;
     return 0;
 }

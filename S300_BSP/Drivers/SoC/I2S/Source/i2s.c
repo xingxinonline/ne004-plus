@@ -149,10 +149,20 @@ void i2s_fifo_flush(i2s_idx_t i, bool rx, bool tx)
 void i2s_set_dma(i2s_idx_t i, bool tx_en, bool rx_en)
 {
     S300_I2S_TypeDef *I = i2s_dev(i);
-    /* Legacy logic: keep only bits [17:16], clear others implicitly */
+    /* 同步手册：不仅要置块级位 [17:16]，也要置对应通道位：TX ch0->[8]，RX ch0->[0] */
     uint32_t v = I->DMACR;
-    v &= (0x03u << 16);
-    v |= ((tx_en ? 1u : 0u) << 17) | ((rx_en ? 1u : 0u) << 16);
+    /* 清理块级与 ch0 的通道位，保留其它位 */
+    v &= ~((0x3u << 16) | (0xFu << 8) | 0xFu);
+    if (tx_en)
+    {
+        v |= (1u << 17); /* TX block DMA enable */
+        v |= (1u << 8);  /* TX channel0 DMA enable */
+    }
+    if (rx_en)
+    {
+        v |= (1u << 16); /* RX block DMA enable */
+        v |= (1u << 0);  /* RX channel0 DMA enable */
+    }
     I->DMACR = v;
 }
 

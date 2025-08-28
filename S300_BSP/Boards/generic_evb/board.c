@@ -16,6 +16,16 @@ static void board_uart3_pins_init(void)
     set_gpio_function(GPIOA, 27, FUNCTION_3);
 }
 
+void board_clock_init(void)
+{
+    /* 切到 CM4 PLL：与参考配置一致（192MHz） */
+    (void)init_cortex_m4_pll(6, 768, 0, 4, 2);
+    /* 可选：保持 APB0/APB1 分频为 0（不分频），确保 APB=SYS */
+    // set_apb_clock_div(0, 0);
+    // set_apb_clock_div(1, 0);
+    SystemCoreClockUpdate();
+}
+
 void board_debug_uart_init(void)
 {
 #if BOARD_UART3_DEBUG_ENABLE
@@ -28,4 +38,10 @@ void board_debug_uart_init(void)
 #else
     (void)UART_DEBUG_IDX;
 #endif
+}
+
+void board_init(void)
+{
+    board_clock_init();
+    board_debug_uart_init();
 }

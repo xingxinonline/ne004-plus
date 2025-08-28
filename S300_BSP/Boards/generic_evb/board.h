@@ -18,6 +18,12 @@ extern "C" {
 #define BOARD_UART_DEBUG_IDX 3u
 #endif
 
+// 初始化板级系统时钟（切换 CM4 到 PLL 等），需在 UART 之前调用
+void board_clock_init(void);
+
+// 统一板级初始化：先时钟后 UART（推荐在 main 最先调用）
+void board_init(void);
+
 // 初始化调试串口（若启用）
 void board_debug_uart_init(void);
 

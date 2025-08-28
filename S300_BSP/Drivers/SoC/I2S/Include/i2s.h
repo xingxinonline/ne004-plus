@@ -20,17 +20,20 @@ typedef enum { I2S_WORD_12 = 1, I2S_WORD_16 = 2, I2S_WORD_20 = 3, I2S_WORD_24 = 
 enum { EM_I2S_RX = 0x00, EM_I2S_TX = 0x04 };
 enum { EM_I2S_MASK_TXFOM = 0x20, EM_I2S_MASK_TXFEM = 0x10, EM_I2S_MASK_RXFOM = 0x02, EM_I2S_MASK_RXDAM = 0x01 };
 enum { EM_I2S_WORD_IGNORE = 0, EM_I2S_WORD_12BIT = 1, EM_I2S_WORD_16BIT = 2, EM_I2S_WORD_20BIT = 3, EM_I2S_WORD_24BIT = 4, EM_I2S_WORD_32BIT = 5 };
+enum { EM_I2S_SCLK_CYCLYS = 0x1, EM_I2S_SCLK_GATING_CYCLYS = 0x2 };
 #endif
 
 /* Basic controls */
 void i2s_clock_enable(i2s_idx_t i, bool en);
 void i2s_set_sclk(i2s_idx_t i, uint8_t sclk_cycles, uint8_t sclk_gate);
+void i2s_set_sclk_pro(i2s_idx_t i, uint32_t pro, uint8_t sclk_cycles, uint8_t sclk_gate);
 void i2s_basic_init(i2s_idx_t i, uint32_t mclk_hz, i2s_word_t word);
 void i2s_enable(i2s_idx_t i, bool en);
 void i2s_tx_enable(i2s_idx_t i, bool en);
 void i2s_rx_enable(i2s_idx_t i, bool en);
 void i2s_fifo_flush(i2s_idx_t i, bool rx, bool tx);
 void i2s_set_wordlen(i2s_idx_t i, i2s_word_t word);
+void i2s_set_wordlen_dir(i2s_idx_t i, uint32_t pro, i2s_word_t word, bool isTDM);
 void i2s_set_dma(i2s_idx_t i, bool tx_en, bool rx_en);
 void i2s_set_interrupt_mask(i2s_idx_t i, uint32_t mask, bool en);
 void i2s_dma_mode(i2s_idx_t i, uint8_t rec_chn, uint8_t play_chn, uint8_t *rec_buffer, uint8_t *play_buffer, uint32_t length);
@@ -48,8 +51,7 @@ static inline void set_i2s_clock_enable(int i, int en)
 }
 static inline void set_i2s_sclk_cycles(int i, uint32_t pro, uint32_t cyc, uint32_t gate)
 {
-    (void)pro;
-    i2s_set_sclk((i2s_idx_t)i, (uint8_t)cyc, (uint8_t)gate);
+    i2s_set_sclk_pro((i2s_idx_t)i, pro, (uint8_t)cyc, (uint8_t)gate);
 }
 static inline void set_i2s_Fifo_flushes(int i, uint32_t pro, int en)
 {
@@ -58,9 +60,7 @@ static inline void set_i2s_Fifo_flushes(int i, uint32_t pro, int en)
 }
 static inline void set_i2s_resolution_bit(int i, uint32_t pro, uint32_t word, int isTDM)
 {
-    (void)pro;
-    (void)isTDM;
-    i2s_set_wordlen((i2s_idx_t)i, (i2s_word_t)word);
+    i2s_set_wordlen_dir((i2s_idx_t)i, pro, (i2s_word_t)word, isTDM != 0);
 }
 static inline void set_i2s_interrupt_mask(int i, uint32_t m, int en)
 {

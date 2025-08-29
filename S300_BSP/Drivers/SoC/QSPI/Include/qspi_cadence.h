@@ -123,6 +123,8 @@ extern "C" {
 #define W25Q_CMD_PP      0x02u
 #define W25Q_CMD_READ    0x03u
 #define W25Q_CMD_FAST    0x0Bu
+#define W25Q_CMD_QUAD_READ 0x6Bu  /* Quad I/O Fast Read */
+#define W25Q_CMD_QUAD_FAST 0xEBu  /* Quad I/O Fast Read (continuous) */
 #define W25Q_CMD_SE_4K   0x20u
 #define W25Q_CMD_BE_64K  0xD8u
 #define W25Q_CMD_CE      0xC7u
@@ -166,6 +168,8 @@ int qspi_wait_ready(uint32_t timeout_ms);
 /* Feature helpers */
 int qspi_set_quad_enable(bool enable);
 int qspi_set_address_mode_4byte(bool enable);
+void qspi_configure_quad_read(bool enable);
+int qspi_read_quad_stig(uint32_t addr, void *buf, uint32_t len);
 
 /* Debug helpers */
 void qspi_dump_regs(const char *tag);

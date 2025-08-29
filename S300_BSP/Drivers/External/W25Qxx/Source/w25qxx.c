@@ -23,6 +23,12 @@ int w25qxx_init(w25qxx_info_t *info, bool want_quad, bool want_4byte_addr)
         uint8_t sr2 = 0;
         (void)qspi_read_status(NULL, &sr2, NULL);
         info->quad_enabled = !!(sr2 & 0x02u);
+        
+        /* 如果成功启用QE，则配置控制器使用Quad读模式 */
+        if (info->quad_enabled)
+        {
+            qspi_configure_quad_read(true);
+        }
     }
     /* 4-byte addressing if size > 16MiB or forced */
     if (want_4byte_addr || info->size_bytes > (16u << 20))

@@ -6,7 +6,7 @@
 
 #define REG32(base, off) (*(volatile uint32_t *)((uintptr_t)(base) + (off)))
 
-/* 控制是否使用控制器的间接模式。默认关闭，走 STIG，最稳妥。 */
+/* 控制是否使用控制器的间接模式。暂时禁用以调试问题。 */
 #ifndef QSPI_USE_INDIRECT_READ
     #define QSPI_USE_INDIRECT_READ 0
 #endif
@@ -155,9 +155,9 @@ void qspi_cadence_init(uint32_t ref_clk_hz, uint32_t sclk_hz)
     REG32(g_qspi.reg, CQSPI_REG_SRAMPARTITION) = (g_qspi.fifo_depth / 2u);
     /* Configure indirect trigger address to AHB aperture base */
     REG32(g_qspi.reg, CQSPI_REG_INDIRECTTRIGGER) = (uint32_t)(uintptr_t)g_qspi.ahb;
-    /* Configure conservative watermarks: quarter of FIFO */
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDWATERMARK) = (g_qspi.fifo_depth / 4u);
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRWATERMARK) = (g_qspi.fifo_depth / 4u);
+    /* Configure optimized watermarks for better performance */
+    REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDWATERMARK) = (g_qspi.fifo_depth / 4u);  /* 读：25% FIFO */
+    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRWATERMARK) = (g_qspi.fifo_depth / 8u);  /* 写：12.5% FIFO */
     REG32(g_qspi.reg, CQSPI_REG_IRQMASK) = 0u;
     /* ensure we are not in XIP/direct mode left by bootrom */
     qspi_exit_xip();
@@ -167,7 +167,7 @@ void qspi_cadence_init(uint32_t ref_clk_hz, uint32_t sclk_hz)
         (20u  << CQSPI_DELAY_TCHSH_LSB) |
         (20u  << CQSPI_DELAY_TSLCH_LSB) |
         (200u << CQSPI_DELAY_TSD2D_LSB);
-    qspi_readdata_capture(2u);
+    qspi_readdata_capture(1u);  /* 减少捕获延时以提升性能 */
     /* instruction bus widths single-single-single */
     uint32_t rd = (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB) |
                   (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_ADDR_LSB)  |
@@ -181,12 +181,9 @@ void qspi_cadence_init(uint32_t ref_clk_hz, uint32_t sclk_hz)
     REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_DONE;
     REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDBYTES) = 0u;
     REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES) = 0u;
-    /* 仅在启用间接模式时开启 DIRECT（供 AHB FIFO 端口使用） */
+    /* 间接模式下不使用 DIRECT，DIRECT 用于 XIP/DAC 模式 */
     cfg = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
-    if (QSPI_USE_INDIRECT_READ || QSPI_USE_INDIRECT_WRITE)
-        cfg |= CQSPI_CFG_DIRECT;
-    else
-        cfg &= ~CQSPI_CFG_DIRECT;
+    cfg &= ~CQSPI_CFG_DIRECT;  /* 确保间接模式下关闭 DIRECT */
     REG32(g_qspi.reg, CQSPI_REG_CONFIG) = cfg;
     qspi_enable(true);
 }
@@ -333,6 +330,93 @@ int qspi_set_address_mode_4byte(bool enable)
     /* 大于 16MiB 才需要 4B；此处按调用者需求发命令 */
     uint32_t cmd = ((enable ? W25Q_CMD_EN4B : W25Q_CMD_EX4B) << CQSPI_CMDCTRL_OPCODE_LSB);
     return qspi_exec_cmd(cmd);
+}
+
+void qspi_configure_quad_read(bool enable)
+{
+    uint32_t rd = REG32(g_qspi.reg, CQSPI_REG_RD_INSTR);
+    
+    if (enable)
+    {
+        /* 配置 Quad I/O Fast Read (0x6B): 指令单线，地址/数据四线 */
+        rd &= ~((0xFFu) << CQSPI_RD_OPCODE_LSB);
+        rd |= (W25Q_CMD_QUAD_READ << CQSPI_RD_OPCODE_LSB);
+        
+        /* 配置传输宽度：指令单线，地址和数据四线 */
+        rd &= ~((0xFu) << CQSPI_RD_TYPE_INSTR_LSB);
+        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB);
+        
+        rd &= ~((0xFu) << CQSPI_RD_TYPE_ADDR_LSB);
+        rd |= (CQSPI_INST_TYPE_QUAD << CQSPI_RD_TYPE_ADDR_LSB);
+        
+        rd &= ~((0xFu) << CQSPI_RD_TYPE_DATA_LSB);
+        rd |= (CQSPI_INST_TYPE_QUAD << CQSPI_RD_TYPE_DATA_LSB);
+        
+        /* 设置dummy cycles（0x6B命令需要8个dummy cycles） */
+        rd &= ~(0x1Fu << CQSPI_RD_DUMMY_LSB);
+        rd |= (8u << CQSPI_RD_DUMMY_LSB);
+    }
+    else
+    {
+        /* 恢复单线 Fast Read (0x0B) */
+        rd &= ~((0xFFu) << CQSPI_RD_OPCODE_LSB);
+        rd |= (W25Q_CMD_FAST << CQSPI_RD_OPCODE_LSB);
+        
+        /* 配置传输宽度：全部单线 */
+        rd &= ~((0xFu) << CQSPI_RD_TYPE_INSTR_LSB);
+        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB);
+        
+        rd &= ~((0xFu) << CQSPI_RD_TYPE_ADDR_LSB);
+        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_ADDR_LSB);
+        
+        rd &= ~((0xFu) << CQSPI_RD_TYPE_DATA_LSB);
+        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_DATA_LSB);
+        
+        /* 设置dummy cycles（0x0B命令需要8个dummy cycles） */
+        rd &= ~(0x1Fu << CQSPI_RD_DUMMY_LSB);
+        rd |= (8u << CQSPI_RD_DUMMY_LSB);
+    }
+    
+    REG32(g_qspi.reg, CQSPI_REG_RD_INSTR) = rd;
+}
+
+int qspi_read_quad_stig(uint32_t addr, void *buf, uint32_t len)
+{
+    if (!buf || len == 0u) return -1;
+    
+    /* 专用的Quad STIG读取，使用Quad Output Fast Read (0x6B) 
+     * 注意：0xEB需要地址也是Quad模式，硬件可能不支持，改用0x6B */
+    uint8_t *pp = (uint8_t *)buf;
+    uint32_t a = addr;
+    uint32_t remain = len;
+    
+    while (remain)
+    {
+        uint32_t chunk = (remain > 8u) ? 8u : remain;
+        REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = a;
+        uint32_t cmd = (W25Q_CMD_QUAD_READ << CQSPI_CMDCTRL_OPCODE_LSB) |
+                       (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
+                       (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
+                       (1u << CQSPI_CMDCTRL_RD_EN_LSB) |
+                       (((chunk - 1u) & CQSPI_CMDCTRL_RD_BYTES_MASK) << CQSPI_CMDCTRL_RD_BYTES_LSB) |
+                       (8u << CQSPI_CMDCTRL_DUMMY_LSB);  /* 8 dummy cycles for 0x6B */
+        
+        int r = qspi_exec_cmd(cmd);
+        if (r) return r;
+        
+        uint32_t low = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATALOWER);
+        uint32_t take = (chunk > 4u) ? 4u : chunk;
+        memcpy(pp, &low, take);
+        if (chunk > 4u)
+        {
+            uint32_t up = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATAUPPER);
+            memcpy(pp + 4u, &up, chunk - 4u);
+        }
+        pp += chunk;
+        a += chunk;
+        remain -= chunk;
+    }
+    return 0;
 }
 
 int qspi_page_program(uint32_t addr, const void *buf, uint32_t len)
@@ -579,19 +663,20 @@ int qspi_read(uint32_t addr, void *buf, uint32_t len)
     if (!buf || len == 0u) return -1;
     if (!QSPI_USE_INDIRECT_READ)
     {
-        /* STIG READ 0x03 分块读取，最兼容 */
+        /* STIG FAST READ 0x0B 分块读取，提升性能 */
         uint8_t *pp = (uint8_t *)buf;
         uint32_t a = addr;
         uint32_t remain = len;
         while (remain)
         {
-            uint32_t chunk = (remain > 8u) ? 8u : remain;
+            uint32_t chunk = (remain > 8u) ? 8u : remain;  /* 保持8字节以确保稳定性 */
             REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = a;
-            uint32_t cmd = (W25Q_CMD_READ << CQSPI_CMDCTRL_OPCODE_LSB) |
+            uint32_t cmd = (W25Q_CMD_FAST << CQSPI_CMDCTRL_OPCODE_LSB) |
                            (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
                            (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
                            (1u << CQSPI_CMDCTRL_RD_EN_LSB) |
-                           (((chunk - 1u) & CQSPI_CMDCTRL_RD_BYTES_MASK) << CQSPI_CMDCTRL_RD_BYTES_LSB);
+                           (((chunk - 1u) & CQSPI_CMDCTRL_RD_BYTES_MASK) << CQSPI_CMDCTRL_RD_BYTES_LSB) |
+                           (8u << CQSPI_CMDCTRL_DUMMY_LSB);  /* 8 dummy cycles for FAST READ */
             int r = qspi_exec_cmd(cmd);
             if (r) return r;
             uint32_t low = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATALOWER);

@@ -21,17 +21,30 @@ typedef struct
     uint32_t block_size; /* 64KB */
     bool quad_enabled;
     bool addr4b;
+    uint8_t unique_id[8]; /* 64-bit unique ID */
 } w25qxx_info_t;
 
 /* 初始化并读取 ID，必要时配置 QE/4B */
 int w25qxx_init(w25qxx_info_t *info, bool want_quad, bool want_4byte_addr);
 
+/* 扩展 ID 读取功能 */
+int w25qxx_read_device_id(uint8_t *dev_id);
+int w25qxx_read_manufacturer_device_id(uint8_t *mfg_id, uint8_t *dev_id);
+int w25qxx_read_unique_id(uint8_t *uid, uint32_t len);
+int w25qxx_read_sfdp(uint32_t addr, uint8_t *buf, uint32_t len);
+
 /* 基础操作 */
 int w25qxx_read(uint32_t addr, void *buf, uint32_t len);
 int w25qxx_write_page(uint32_t addr, const void *buf, uint32_t len); /* len<=256, 不跨页 */
+int w25qxx_write_page_quad(uint32_t addr, const void *buf, uint32_t len); /* 四线写入 */
 int w25qxx_erase_4k(uint32_t addr);
+int w25qxx_erase_32k(uint32_t addr);
 int w25qxx_erase_64k(uint32_t addr);
 int w25qxx_chip_erase(void);
+
+/* 高级功能 */
+int w25qxx_software_reset(void);
+int w25qxx_configure_read_mode(int mode); /* 0=单线, 1=四线输出, 2=四线I/O */
 
 #ifdef __cplusplus
 }

@@ -64,3 +64,61 @@ int w25qxx_chip_erase(void)
 {
     return qspi_chip_erase();
 }
+
+/* 扩展 ID 读取功能 */
+int w25qxx_read_device_id(uint8_t *dev_id)
+{
+    return qspi_read_device_id(dev_id);
+}
+
+int w25qxx_read_manufacturer_device_id(uint8_t *mfg_id, uint8_t *dev_id)
+{
+    return qspi_read_manufacturer_device_id(mfg_id, dev_id);
+}
+
+int w25qxx_read_unique_id(uint8_t *uid, uint32_t len)
+{
+    return qspi_read_unique_id(uid, len);
+}
+
+int w25qxx_read_sfdp(uint32_t addr, uint8_t *buf, uint32_t len)
+{
+    return qspi_read_sfdp(addr, buf, len);
+}
+
+/* 扩展写入功能 */
+int w25qxx_write_page_quad(uint32_t addr, const void *buf, uint32_t len)
+{
+    if (len > 256u) len = 256u;
+    return qspi_page_program_quad(addr, buf, len);
+}
+
+/* 扩展擦除功能 */
+int w25qxx_erase_32k(uint32_t addr)
+{
+    return qspi_erase_32k(addr);
+}
+
+/* 高级功能 */
+int w25qxx_software_reset(void)
+{
+    return qspi_software_reset();
+}
+
+int w25qxx_configure_read_mode(int mode)
+{
+    switch (mode)
+    {
+    case 0: /* 单线模式 */
+        qspi_configure_quad_read(false);
+        return 0;
+    case 1: /* 四线输出模式 (6Bh) */
+        qspi_configure_quad_read(true);
+        return 0;
+    case 2: /* 四线 I/O 模式 (EBh) */
+        qspi_configure_quad_io_read(true);
+        return 0;
+    default:
+        return -1; /* 不支持的模式 */
+    }
+}

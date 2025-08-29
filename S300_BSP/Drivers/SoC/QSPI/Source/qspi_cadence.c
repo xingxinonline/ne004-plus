@@ -99,12 +99,38 @@ static int qspi_exec_cmd(uint32_t cmdctrl)
 {
     REG32(g_qspi.reg, CQSPI_REG_CMDCTRL) = cmdctrl;
     REG32(g_qspi.reg, CQSPI_REG_CMDCTRL) = cmdctrl | CQSPI_CMDCTRL_EXECUTE;
+    
+    /* 根据频率调整超时时间 - 高频时需要更多时间 */
+    uint32_t timeout = 1000000u;
+    if (g_qspi.sclk_hz >= 80000000u) {
+        timeout = 2000000u;  /* 高频时增加超时 */
+    } else if (g_qspi.sclk_hz >= 50000000u) {
+        timeout = 1500000u;  /* 中高频时适当增加 */
+    }
+    
     /* wait complete */
-    for (uint32_t t = 0; t < 1000000u; ++t)
+    uint32_t t;
+    for (t = 0; t < timeout; ++t)
     {
         uint32_t r = REG32(g_qspi.reg, CQSPI_REG_CMDCTRL);
         if ((r & CQSPI_CMDCTRL_INPROGRESS) == 0u) break;
+        
+        /* 每1000次循环添加一个小延时，让硬件有时间响应 */
+        if ((t % 1000u) == 999u) {
+            for (volatile uint32_t i = 0; i < 10u; i++) __NOP();
+        }
     }
+    
+    /* 检查是否超时 */
+    if (t >= timeout) {
+        if (s_qspi_verbose) {
+            printf("[QSPI] Command timeout @%lu Hz\n", (unsigned long)g_qspi.sclk_hz);
+        }
+        /* 清除状态并返回错误 */
+        REG32(g_qspi.reg, CQSPI_REG_CMDCTRL) = 0u;
+        return -1;
+    }
+    
     /* clear */
     REG32(g_qspi.reg, CQSPI_REG_CMDCTRL) = 0u;
     return qspi_wait_idle();
@@ -161,13 +187,47 @@ void qspi_cadence_init(uint32_t ref_clk_hz, uint32_t sclk_hz)
     REG32(g_qspi.reg, CQSPI_REG_IRQMASK) = 0u;
     /* ensure we are not in XIP/direct mode left by bootrom */
     qspi_exit_xip();
-    /* conservative delays */
+    
+    /* 根据频率动态调整时序参数 */
+    uint32_t tshsl, tchsh, tslch, tsd2d;
+    uint32_t capture_delay;
+    
+    if (g_qspi.sclk_hz >= 80000000u) {
+        /* 高频 (>=80MHz): 更保守的时序 */
+        tshsl = 255u;    /* 最大CS高时间 */
+        tchsh = 50u;     /* CS保持时间 */
+        tslch = 50u;     /* CS建立时间 */
+        tsd2d = 255u;    /* 数据切换延时 */
+        capture_delay = 3u;  /* 更大的捕获延时 */
+    } else if (g_qspi.sclk_hz >= 50000000u) {
+        /* 中高频 (50-80MHz): 适中时序 */
+        tshsl = 200u;
+        tchsh = 30u;
+        tslch = 30u;
+        tsd2d = 200u;
+        capture_delay = 2u;
+    } else if (g_qspi.sclk_hz >= 25000000u) {
+        /* 中频 (25-50MHz): 标准时序 */
+        tshsl = 150u;
+        tchsh = 20u;
+        tslch = 20u;
+        tsd2d = 150u;
+        capture_delay = 1u;
+    } else {
+        /* 低频 (<25MHz): 最小时序 */
+        tshsl = 100u;
+        tchsh = 10u;
+        tslch = 10u;
+        tsd2d = 100u;
+        capture_delay = 0u;  /* 可以旁路 */
+    }
+    
     REG32(g_qspi.reg, CQSPI_REG_DELAY) =
-        (200u << CQSPI_DELAY_TSHSL_LSB) |
-        (20u  << CQSPI_DELAY_TCHSH_LSB) |
-        (20u  << CQSPI_DELAY_TSLCH_LSB) |
-        (200u << CQSPI_DELAY_TSD2D_LSB);
-    qspi_readdata_capture(1u);  /* 减少捕获延时以提升性能 */
+        (tshsl << CQSPI_DELAY_TSHSL_LSB) |
+        (tchsh << CQSPI_DELAY_TCHSH_LSB) |
+        (tslch << CQSPI_DELAY_TSLCH_LSB) |
+        (tsd2d << CQSPI_DELAY_TSD2D_LSB);
+    qspi_readdata_capture(capture_delay);
     /* instruction bus widths single-single-single */
     uint32_t rd = (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB) |
                   (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_ADDR_LSB)  |
@@ -208,10 +268,149 @@ int qspi_read_id(uint8_t *id, uint32_t len)
     return 0;
 }
 
+int qspi_read_device_id(uint8_t *dev_id)
+{
+    if (!dev_id) return -1;
+    qspi_enable(true);
+    /* Device ID command (ABh) with 3 dummy bytes */
+    REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = 0x000000u; /* 3 dummy bytes */
+    uint32_t cmd = (W25Q_CMD_DEVID << CQSPI_CMDCTRL_OPCODE_LSB) |
+                   (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
+                   (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
+                   (1u << CQSPI_CMDCTRL_RD_EN_LSB) |
+                   (0u << CQSPI_CMDCTRL_RD_BYTES_LSB); /* 1 byte */
+    int rc = qspi_exec_cmd(cmd);
+    if (rc) return rc;
+    uint32_t low = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATALOWER);
+    *dev_id = (uint8_t)(low & 0xFFu);
+    return 0;
+}
+
+int qspi_read_manufacturer_device_id(uint8_t *mfg_id, uint8_t *dev_id)
+{
+    if (!mfg_id || !dev_id) return -1;
+    qspi_enable(true);
+    /* Manufacturer/Device ID command (90h) with address 000000h */
+    REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = 0x000000u;
+    uint32_t cmd = (W25Q_CMD_MANDEV << CQSPI_CMDCTRL_OPCODE_LSB) |
+                   (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
+                   (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
+                   (1u << CQSPI_CMDCTRL_RD_EN_LSB) |
+                   (((2u - 1u) & CQSPI_CMDCTRL_RD_BYTES_MASK) << CQSPI_CMDCTRL_RD_BYTES_LSB); /* 2 bytes */
+    int rc = qspi_exec_cmd(cmd);
+    if (rc) return rc;
+    uint32_t low = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATALOWER);
+    *mfg_id = (uint8_t)(low & 0xFFu);
+    *dev_id = (uint8_t)((low >> 8) & 0xFFu);
+    return 0;
+}
+
+int qspi_read_unique_id(uint8_t *uid, uint32_t len)
+{
+    if (!uid || len == 0u) return -1;
+    qspi_enable(true);
+    /* Read Unique ID command (4Bh) with 4 dummy bytes */
+    REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = 0x00000000u; /* 4 dummy bytes */
+    uint32_t read_len = (len > 8u) ? 8u : len; /* Max 8 bytes per STIG */
+    uint32_t cmd = (W25Q_CMD_UNIQUE << CQSPI_CMDCTRL_OPCODE_LSB) |
+                   (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
+                   (((4u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
+                   (1u << CQSPI_CMDCTRL_RD_EN_LSB) |
+                   (((read_len - 1u) & CQSPI_CMDCTRL_RD_BYTES_MASK) << CQSPI_CMDCTRL_RD_BYTES_LSB);
+    int rc = qspi_exec_cmd(cmd);
+    if (rc) return rc;
+    uint32_t low = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATALOWER);
+    uint32_t copy = read_len > 4u ? 4u : read_len;
+    memcpy(uid, &low, copy);
+    if (read_len > 4u)
+    {
+        uint32_t up = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATAUPPER);
+        memcpy(uid + 4u, &up, read_len - 4u);
+    }
+    return 0;
+}
+
+int qspi_read_sfdp(uint32_t addr, uint8_t *buf, uint32_t len)
+{
+    if (!buf || len == 0u) return -1;
+    qspi_enable(true);
+    
+    uint8_t *p = buf;
+    uint32_t remaining = len;
+    uint32_t current_addr = addr;
+    
+    while (remaining > 0u)
+    {
+        uint32_t chunk = (remaining > 8u) ? 8u : remaining;
+        REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = current_addr;
+        uint32_t cmd = (W25Q_CMD_SFDP << CQSPI_CMDCTRL_OPCODE_LSB) |
+                       (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
+                       (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
+                       (1u << CQSPI_CMDCTRL_RD_EN_LSB) |
+                       (((chunk - 1u) & CQSPI_CMDCTRL_RD_BYTES_MASK) << CQSPI_CMDCTRL_RD_BYTES_LSB) |
+                       (8u << CQSPI_CMDCTRL_DUMMY_LSB); /* SFDP needs 8 dummy cycles */
+        
+        int rc = qspi_exec_cmd(cmd);
+        if (rc) return rc;
+        
+        uint32_t low = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATALOWER);
+        uint32_t copy = chunk > 4u ? 4u : chunk;
+        memcpy(p, &low, copy);
+        if (chunk > 4u)
+        {
+            uint32_t up = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATAUPPER);
+            memcpy(p + 4u, &up, chunk - 4u);
+        }
+        
+        p += chunk;
+        current_addr += chunk;
+        remaining -= chunk;
+    }
+    return 0;
+}
+
 static int qspi_wren(void)
 {
     uint32_t cmd = (W25Q_CMD_WREN << CQSPI_CMDCTRL_OPCODE_LSB);
-    return qspi_exec_cmd(cmd);
+    int rc = qspi_exec_cmd(cmd);
+    if (rc) return rc;
+    
+    /* 在高频下，WREN命令可能需要额外的时间才能生效 */
+    /* 添加一个小延时以确保命令完全执行 */
+    if (g_qspi.sclk_hz >= 80000000u) {
+        /* 高频时增加延时 */
+        for (volatile uint32_t i = 0; i < 100u; i++) __NOP();
+    } else if (g_qspi.sclk_hz >= 50000000u) {
+        /* 中高频时适量延时 */
+        for (volatile uint32_t i = 0; i < 50u; i++) __NOP();
+    }
+    
+    /* 验证WEL位是否已设置 */
+    uint8_t sr1 = 0;
+    rc = qspi_read_status(&sr1, NULL, NULL);
+    if (rc) return rc;
+    
+    if ((sr1 & 0x02u) == 0) {
+        /* WEL位未设置，可能是时序问题，再试一次 */
+        rc = qspi_exec_cmd(cmd);
+        if (rc) return rc;
+        
+        /* 再次添加延时 */
+        if (g_qspi.sclk_hz >= 50000000u) {
+            for (volatile uint32_t i = 0; i < 200u; i++) __NOP();
+        }
+        
+        /* 再次验证 */
+        rc = qspi_read_status(&sr1, NULL, NULL);
+        if (rc) return rc;
+        
+        if ((sr1 & 0x02u) == 0) {
+            /* 仍然失败，返回错误 */
+            return -1;
+        }
+    }
+    
+    return 0;
 }
 
 static int qspi_write_sr12(uint8_t sr1, uint8_t sr2)
@@ -227,7 +426,7 @@ static int qspi_write_sr12(uint8_t sr1, uint8_t sr2)
     return qspi_wait_ready(10u);
 }
 
-static int qspi_write_sr3(uint8_t sr3)
+/* static int qspi_write_sr3(uint8_t sr3)
 {
     int rc = qspi_wren();
     if (rc) return rc;
@@ -238,7 +437,7 @@ static int qspi_write_sr3(uint8_t sr3)
     rc = qspi_exec_cmd(cmd);
     if (rc) return rc;
     return qspi_wait_ready(10u);
-}
+} */
 
 int qspi_unlock_all(void)
 {
@@ -303,6 +502,19 @@ int qspi_erase_64k(uint32_t addr)
     return qspi_wait_ready(8000u);
 }
 
+int qspi_erase_32k(uint32_t addr)
+{
+    int rc = qspi_wren();
+    if (rc) return rc;
+    REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = addr;
+    uint32_t cmd = (W25Q_CMD_BE_32K << CQSPI_CMDCTRL_OPCODE_LSB) |
+                   (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
+                   (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB);
+    rc = qspi_exec_cmd(cmd);
+    if (rc) return rc;
+    return qspi_wait_ready(6000u); /* 32KB erase timeout */
+}
+
 int qspi_chip_erase(void)
 {
     int rc = qspi_wren();
@@ -311,6 +523,39 @@ int qspi_chip_erase(void)
     rc = qspi_exec_cmd(cmd);
     if (rc) return rc;
     return qspi_wait_ready(200000u); /* up to seconds */
+}
+
+int qspi_reset_enable(void)
+{
+    uint32_t cmd = (W25Q_CMD_RSTEN << CQSPI_CMDCTRL_OPCODE_LSB);
+    return qspi_exec_cmd(cmd);
+}
+
+int qspi_reset_device(void)
+{
+    uint32_t cmd = (W25Q_CMD_RST << CQSPI_CMDCTRL_OPCODE_LSB);
+    return qspi_exec_cmd(cmd);
+}
+
+int qspi_software_reset(void)
+{
+    /* 软件复位序列：先使能复位，再执行复位 */
+    int rc = qspi_reset_enable();
+    if (rc) return rc;
+    
+    /* 短暂延时确保使能命令生效 */
+    for (volatile uint32_t i = 0; i < 1000u; ++i) __NOP();
+    
+    rc = qspi_reset_device();
+    if (rc) return rc;
+    
+    /* 复位后延时，等待设备重新初始化 */
+    for (volatile uint32_t i = 0; i < 10000u; ++i) __NOP();
+    
+    if (s_qspi_verbose)
+        printf("[QSPI] Software reset completed\n");
+    
+    return 0;
 }
 
 int qspi_set_quad_enable(bool enable)
@@ -338,16 +583,16 @@ void qspi_configure_quad_read(bool enable)
     
     if (enable)
     {
-        /* 配置 Quad I/O Fast Read (0x6B): 指令单线，地址/数据四线 */
+        /* 配置 Fast Read Quad Output (0x6B): 指令单线，地址单线，数据四线 (1-1-4 模式) */
         rd &= ~((0xFFu) << CQSPI_RD_OPCODE_LSB);
         rd |= (W25Q_CMD_QUAD_READ << CQSPI_RD_OPCODE_LSB);
         
-        /* 配置传输宽度：指令单线，地址和数据四线 */
+        /* 配置传输宽度：指令单线，地址单线，数据四线 */
         rd &= ~((0xFu) << CQSPI_RD_TYPE_INSTR_LSB);
         rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB);
         
         rd &= ~((0xFu) << CQSPI_RD_TYPE_ADDR_LSB);
-        rd |= (CQSPI_INST_TYPE_QUAD << CQSPI_RD_TYPE_ADDR_LSB);
+        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_ADDR_LSB);  /* 修复：地址应该是单线 */
         
         rd &= ~((0xFu) << CQSPI_RD_TYPE_DATA_LSB);
         rd |= (CQSPI_INST_TYPE_QUAD << CQSPI_RD_TYPE_DATA_LSB);
@@ -375,6 +620,66 @@ void qspi_configure_quad_read(bool enable)
         /* 设置dummy cycles（0x0B命令需要8个dummy cycles） */
         rd &= ~(0x1Fu << CQSPI_RD_DUMMY_LSB);
         rd |= (8u << CQSPI_RD_DUMMY_LSB);
+    }
+    
+    REG32(g_qspi.reg, CQSPI_REG_RD_INSTR) = rd;
+}
+
+void qspi_configure_quad_io_read(bool enable)
+{
+    uint32_t rd = REG32(g_qspi.reg, CQSPI_REG_RD_INSTR);
+    
+    if (enable)
+    {
+        /* 配置 Fast Read Quad I/O (0xEB): 指令单线，地址四线，数据四线 (1-4-4 模式) */
+        rd &= ~((0xFFu) << CQSPI_RD_OPCODE_LSB);
+        rd |= (W25Q_CMD_QUAD_FAST << CQSPI_RD_OPCODE_LSB);  /* 0xEB */
+        
+        /* 配置传输宽度：指令单线，地址四线，数据四线 */
+        rd &= ~((0xFu) << CQSPI_RD_TYPE_INSTR_LSB);
+        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB);
+        
+        rd &= ~((0xFu) << CQSPI_RD_TYPE_ADDR_LSB);
+        rd |= (CQSPI_INST_TYPE_QUAD << CQSPI_RD_TYPE_ADDR_LSB);  /* 地址四线 */
+        
+        rd &= ~((0xFu) << CQSPI_RD_TYPE_DATA_LSB);
+        rd |= (CQSPI_INST_TYPE_QUAD << CQSPI_RD_TYPE_DATA_LSB);
+        
+        /* 启用 Mode bits */
+        rd |= (1u << CQSPI_RD_MODE_EN_LSB);
+        
+        /* 设置dummy cycles（0xEB命令通常需要6个dummy cycles） */
+        rd &= ~(0x1Fu << CQSPI_RD_DUMMY_LSB);
+        rd |= (6u << CQSPI_RD_DUMMY_LSB);
+        
+        if (s_qspi_verbose)
+            printf("[QSPI] Configured Fast Read Quad I/O (0xEB, 1-4-4 mode)\n");
+    }
+    else
+    {
+        /* 恢复单线 Fast Read (0x0B) */
+        rd &= ~((0xFFu) << CQSPI_RD_OPCODE_LSB);
+        rd |= (W25Q_CMD_FAST << CQSPI_RD_OPCODE_LSB);
+        
+        /* 配置传输宽度：全部单线 */
+        rd &= ~((0xFu) << CQSPI_RD_TYPE_INSTR_LSB);
+        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB);
+        
+        rd &= ~((0xFu) << CQSPI_RD_TYPE_ADDR_LSB);
+        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_ADDR_LSB);
+        
+        rd &= ~((0xFu) << CQSPI_RD_TYPE_DATA_LSB);
+        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_DATA_LSB);
+        
+        /* 禁用 Mode bits */
+        rd &= ~(1u << CQSPI_RD_MODE_EN_LSB);
+        
+        /* 设置dummy cycles（0x0B命令需要8个dummy cycles） */
+        rd &= ~(0x1Fu << CQSPI_RD_DUMMY_LSB);
+        rd |= (8u << CQSPI_RD_DUMMY_LSB);
+        
+        if (s_qspi_verbose)
+            printf("[QSPI] Configured Fast Read (0x0B, 1-1-1 mode)\n");
     }
     
     REG32(g_qspi.reg, CQSPI_REG_RD_INSTR) = rd;
@@ -656,6 +961,170 @@ int qspi_page_program(uint32_t addr, const void *buf, uint32_t len)
         return 0;
     }
     return qspi_wait_ready(100u);
+}
+
+int qspi_page_program_quad(uint32_t addr, const void *buf, uint32_t len)
+{
+    if (!buf || len == 0u) return -1;
+    if (len > g_qspi.page_size) len = g_qspi.page_size;
+    
+    /* 四线页编程需要使用间接写模式 */
+    int rc = qspi_wren();
+    if (rc) return rc;
+    
+    if (s_qspi_verbose)
+    {
+        uint8_t s1_dbg = 0;
+        (void)qspi_read_status(&s1_dbg, NULL, NULL);
+        printf("[QSPI] Quad PP: After WREN SR1=%02X (WEL=%u)\n", s1_dbg, (unsigned)(!!(s1_dbg & 0x02u)));
+    }
+    
+    /* 确保 WEL 已设置 */
+    {
+        uint8_t s1 = 0;
+        (void)qspi_read_status(&s1, NULL, NULL);
+        if ((s1 & 0x02u) == 0u)
+        {
+            rc = qspi_wren();
+            if (rc) return rc;
+            (void)qspi_read_status(&s1, NULL, NULL);
+            if (s_qspi_verbose)
+                printf("[QSPI] Quad PP: Retry WREN SR1=%02X (WEL=%u)\n", s1, (unsigned)(!!(s1 & 0x02u)));
+            if ((s1 & 0x02u) == 0u)
+            {
+                if (s_qspi_verbose)
+                    printf("[QSPI] Quad PP: WEL not set (SR1=%02X)\n", s1);
+                return -2;
+            }
+        }
+    }
+    
+    /* 配置写指令寄存器用于四线页编程 */
+    uint32_t write_setup = (W25Q_CMD_PP_QUAD << CQSPI_WR_OPCODE_LSB) |
+                          (CQSPI_INST_TYPE_SINGLE << CQSPI_WR_TYPE_ADDR_LSB) |  /* 地址仍使用单线 */
+                          (CQSPI_INST_TYPE_QUAD << CQSPI_WR_TYPE_DATA_LSB);     /* 数据使用四线 */
+    REG32(g_qspi.reg, CQSPI_REG_WR_INSTR) = write_setup;
+    
+    /* 确保之前的间接操作已完成 */
+    uint32_t prev_status = REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR);
+    if (prev_status & (CQSPI_INDIRECTWR_START | CQSPI_INDIRECTWR_CANCEL)) {
+        if (s_qspi_verbose)
+            printf("[QSPI] Quad PP: Previous indirect write still active, waiting...\n");
+        /* 等待之前的操作完成 */
+        for (uint32_t i = 0; i < 100000u; i++) {
+            prev_status = REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR);
+            if ((prev_status & (CQSPI_INDIRECTWR_START | CQSPI_INDIRECTWR_CANCEL)) == 0u)
+                break;
+            __NOP();
+        }
+        if (prev_status & (CQSPI_INDIRECTWR_START | CQSPI_INDIRECTWR_CANCEL)) {
+            if (s_qspi_verbose)
+                printf("[QSPI] Quad PP: Previous operation still active, aborting\n");
+            return -4;
+        }
+    }
+    
+    /* 清除任何之前的完成状态 */
+    if (prev_status & CQSPI_INDIRECTWR_DONE) {
+        REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_DONE;
+    }
+    
+    /* 配置间接写操作 */
+    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRSTARTADDR) = addr;
+    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES) = len;
+    
+    /* 启动间接写操作 */
+    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_START;
+    
+    /* 写入数据到AHB接口 */
+    const uint8_t *p8 = (const uint8_t *)buf;
+    uint32_t written = 0;
+    
+    while (written < len)
+    {
+        /* 检查操作是否已完成 */
+        uint32_t status = REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR);
+        if (status & CQSPI_INDIRECTWR_DONE)
+            break;
+            
+        /* 一次写入4字节对齐的数据块 */
+        uint32_t chunk = len - written;
+        if (chunk >= 4u)
+        {
+            /* 按4字节写入 */
+            uint32_t word;
+            memcpy(&word, p8 + written, 4u);
+            *((volatile uint32_t *)g_qspi.ahb) = word;
+            written += 4u;
+        }
+        else
+        {
+            /* 剩余字节逐个写入 */
+            for (uint32_t i = 0; i < chunk; i++)
+            {
+                *((volatile uint8_t *)g_qspi.ahb) = p8[written + i];
+            }
+            written += chunk;
+        }
+    }
+    
+    /* 等待间接写操作完成 */
+    uint32_t timeout = 1000000u;  /* 增加超时时间 */
+    if (g_qspi.sclk_hz >= 80000000u) {
+        timeout = 2000000u;  /* 高频时更长的超时 */
+    }
+    
+    while (--timeout > 0u)
+    {
+        uint32_t status = REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR);
+        if (status & CQSPI_INDIRECTWR_DONE)
+            break;
+            
+        /* 每1000次循环检查一次，避免CPU过度占用 */
+        if ((timeout % 1000u) == 0u) {
+            /* 添加小延时让硬件有时间响应 */
+            for (volatile uint32_t i = 0; i < 10u; i++) __NOP();
+            
+            /* 检查是否有错误状态 */
+            uint32_t irq_status = REG32(g_qspi.reg, CQSPI_REG_IRQSTATUS);
+            if (irq_status != 0u) {
+                if (s_qspi_verbose)
+                    printf("[QSPI] Quad PP: IRQ status=0x%08lX during wait\n", (unsigned long)irq_status);
+                /* 清除中断状态 */
+                REG32(g_qspi.reg, CQSPI_REG_IRQSTATUS) = irq_status;
+            }
+        }
+    }
+    
+    if (timeout == 0u)
+    {
+        /* 超时处理：尝试取消操作 */
+        if (s_qspi_verbose)
+            printf("[QSPI] Quad PP: Timeout waiting for completion, attempting cancel\n");
+        REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_CANCEL;
+        
+        /* 等待取消完成 */
+        for (uint32_t i = 0; i < 10000u; i++) {
+            uint32_t status = REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR);
+            if ((status & (CQSPI_INDIRECTWR_START | CQSPI_INDIRECTWR_CANCEL)) == 0u)
+                break;
+            __NOP();
+        }
+        
+        return -3;
+    }
+    
+    /* 清除完成标志 */
+    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_DONE;
+    
+    /* 等待flash完成编程操作 */
+    rc = qspi_wait_ready(20u);
+    
+    if (s_qspi_verbose)
+        printf("[QSPI] Quad page program completed: %lu bytes @0x%06lX\n", 
+               (unsigned long)len, (unsigned long)addr);
+    
+    return rc;
 }
 
 int qspi_read(uint32_t addr, void *buf, uint32_t len)

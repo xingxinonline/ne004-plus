@@ -9,66 +9,8 @@
 
 /* printf 已在 board_init 中完成串口与重定向初始化 */
 
-/* 简易性能计时器：优先用 DWT，失败回退到 SysTick（核心时钟源） */
-static bool g_use_dwt = false;
-static uint32_t g_systick_reload = 0;
-
-static void perf_timer_init(uint32_t cpu_hz)
-{
-    (void)cpu_hz;
-    /* 尝试启用 DWT */
-    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-    /* 尝试解锁 DWT（若实现了 LAR） */
-    volatile uint32_t *DWT_LAR = (volatile uint32_t *)0xE0001FB0u;
-    *DWT_LAR = 0xC5ACCE55u;
-    DWT->CYCCNT = 0;
-    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-    uint32_t c0 = DWT->CYCCNT;
-    for (volatile uint32_t i = 0; i < 1000u; ++i) __NOP();
-    uint32_t c1 = DWT->CYCCNT;
-    g_use_dwt = (c1 != c0);
-    if (!g_use_dwt)
-    {
-        /* 配置 SysTick 为核心时钟、无中断、最大重装值，作为自由运行计数器 */
-        SysTick->CTRL = 0; /* 先关 */
-        SysTick->LOAD = 0xFFFFFFu;
-        SysTick->VAL  = 0u;
-        SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_ENABLE_Msk; /* 不开中断 */
-        g_systick_reload = SysTick->LOAD + 1u; /* 计数范围 */
-    }
-}
-
-static inline uint32_t perf_now32(void)
-{
-    return g_use_dwt ? DWT->CYCCNT : SysTick->VAL; /* 注意：SysTick 向下计数 */
-}
-
-static uint32_t perf_cycles_since(uint32_t start)
-{
-    if (g_use_dwt)
-    {
-        uint32_t now = DWT->CYCCNT;
-        return now - start; /* 自然溢出处理 */
-    }
-    /* SysTick: 向下计数，单次测量假定 < 一个重装周期（~87ms@192MHz） */
-    uint32_t now = SysTick->VAL;
-    if (start >= now) return start - now; /* 未溢出期间 */
-    return (start + g_systick_reload) - now; /* 发生一次回绕 */
-}
-
-static void print_bw(const char *tag, uint32_t bytes, uint32_t cycles, uint32_t cpu_hz)
-{
-    if (cycles == 0u) cycles = 1u;
-    /* 以 MB/s*100 打印，避免浮点 */
-    uint64_t mbps_x100 = ((uint64_t)bytes * (uint64_t)cpu_hz * 100ull) / ((uint64_t)cycles * 1000000ull);
-    unsigned whole = (unsigned)(mbps_x100 / 100ull);
-    unsigned frac  = (unsigned)(mbps_x100 % 100ull);
-    printf("%s: %lu bytes in %lu cycles -> %u.%02u MB/s\n",
-           tag, (unsigned long)bytes, (unsigned long)cycles, whole, frac);
-}
-
-#define BW_TEST_SIZE     (1024u * 1024u)  /* 1MB */
-#define BW_CHUNK_SIZE    (4u * 1024u)      /* 4KB chunk to avoid memory overflow */
+/* 测试配置 */
+#define FUNCTIONAL_TEST_SIZE   (4096u)       /* 功能测试4KB */
 
 static const char *decode_flash_name(const uint8_t id[3], uint32_t *size_bytes)
 {
@@ -101,312 +43,264 @@ static const char *decode_flash_name(const uint8_t id[3], uint32_t *size_bytes)
     return "Unknown";
 }
 
+/* 获取详细的Flash信息 */
+static void get_flash_info(void)
+{
+    printf("\n=== Flash Information ===\n");
+    
+    /* 读取JEDEC ID */
+    uint8_t id[3] = {0};
+    if (qspi_read_id(id, sizeof(id)) == 0)
+    {
+        uint32_t sz = 0;
+        const char *name = decode_flash_name(id, &sz);
+        printf("JEDEC ID: %02X %02X %02X -> %s", id[0], id[1], id[2], name);
+        if (sz > 0)
+        {
+            unsigned mib = (sz >> 20);
+            printf(" (%u MiB)\n", mib);
+        }
+        else
+        {
+            printf("\n");
+        }
+    }
+    else
+    {
+        printf("Failed to read JEDEC ID\n");
+        return;
+    }
+    
+    /* 读取Device ID */
+    uint8_t dev_id = 0;
+    if (qspi_read_device_id(&dev_id) == 0)
+        printf("Device ID (ABh): %02X\n", dev_id);
+    
+    /* 读取Manufacturer/Device ID */
+    uint8_t mfg_id = 0, mfg_dev_id = 0;
+    if (qspi_read_manufacturer_device_id(&mfg_id, &mfg_dev_id) == 0)
+        printf("Mfg/Dev ID (90h): %02X %02X\n", mfg_id, mfg_dev_id);
+    
+    /* 读取Unique ID */
+    uint8_t uid[8] = {0};
+    if (qspi_read_unique_id(uid, 8) == 0)
+    {
+        printf("Unique ID: ");
+        for (int i = 0; i < 8; i++) printf("%02X", uid[i]);
+        printf("\n");
+    }
+    
+    /* 读取SFDP信息 */
+    printf("SFDP Information:\n");
+    uint8_t sfdp_header[8] = {0};
+    if (qspi_read_sfdp(0, sfdp_header, 8) == 0)
+    {
+        printf("  SFDP Header: ");
+        for (int i = 0; i < 8; i++) printf("%02X ", sfdp_header[i]);
+        printf("\n");
+        
+        /* 检查SFDP签名 */
+        if (sfdp_header[0] == 0x53 && sfdp_header[1] == 0x46 && 
+            sfdp_header[2] == 0x44 && sfdp_header[3] == 0x50)
+        {
+            printf("  SFDP Signature: Valid\n");
+            printf("  SFDP Version: %u.%u\n", sfdp_header[5], sfdp_header[4]);
+            printf("  Number of Parameter Headers: %u\n", sfdp_header[6] + 1);
+        }
+        else
+        {
+            printf("  SFDP Signature: Invalid\n");
+        }
+    }
+    
+    /* 读取状态寄存器 */
+    uint8_t sr1 = 0, sr2 = 0, sr3 = 0;
+    if (qspi_read_status(&sr1, &sr2, &sr3) == 0)
+    {
+        printf("Status Registers:\n");
+        printf("  SR1: %02X (BUSY:%u WEL:%u BP:%u TB:%u SEC:%u SRP0:%u)\n", sr1,
+               (sr1 >> 0) & 1, (sr1 >> 1) & 1, (sr1 >> 2) & 7, (sr1 >> 5) & 1, (sr1 >> 6) & 1, (sr1 >> 7) & 1);
+        printf("  SR2: %02X (SRP1:%u QE:%u LB:%u CMP:%u SUS:%u)\n", sr2,
+               (sr2 >> 0) & 1, (sr2 >> 1) & 1, (sr2 >> 3) & 7, (sr2 >> 6) & 1, (sr2 >> 7) & 1);
+        printf("  SR3: %02X (ADP:%u ADS:%u DRV:%u Hold/RST:%u)\n", sr3,
+               (sr3 >> 1) & 1, (sr3 >> 0) & 1, (sr3 >> 5) & 3, (sr3 >> 7) & 1);
+    }
+}
+
+/* 简单的读写功能测试 */
+static bool functional_test(uint32_t test_addr, uint32_t freq_hz)
+{
+    printf("Functional test @%lu Hz...\n", (unsigned long)freq_hz);
+    
+    /* 擦除测试扇区 */
+    printf("  Erasing 4KB sector @0x%06lX\n", (unsigned long)test_addr);
+    if (qspi_erase_4k(test_addr) != 0)
+    {
+        printf("  Erase failed\n");
+        return false;
+    }
+    
+    /* 准备测试数据 */
+    uint8_t tx_data[256];
+    for (uint32_t i = 0; i < sizeof(tx_data); i++)
+        tx_data[i] = (uint8_t)(i ^ (freq_hz >> 16) ^ 0xA5);
+    
+    /* 写入数据 */
+    printf("  Programming 256 bytes\n");
+    if (qspi_page_program(test_addr, tx_data, sizeof(tx_data)) != 0)
+    {
+        printf("  Program failed\n");
+        return false;
+    }
+    
+    /* 读回数据 */
+    uint8_t rx_data[256] = {0};
+    printf("  Reading back 256 bytes\n");
+    if (qspi_read(test_addr, rx_data, sizeof(rx_data)) != 0)
+    {
+        printf("  Read failed\n");
+        return false;
+    }
+    
+    /* 验证数据 */
+    if (memcmp(tx_data, rx_data, sizeof(tx_data)) == 0)
+    {
+        printf("  Data verification: PASS\n");
+        return true;
+    }
+    else
+    {
+        printf("  Data verification: FAIL\n");
+        /* 显示第一个不匹配的位置 */
+        for (unsigned i = 0; i < sizeof(tx_data); i++)
+        {
+            if (tx_data[i] != rx_data[i])
+            {
+                printf("    First mismatch @%u: expected %02X, got %02X\n", 
+                       i, tx_data[i], rx_data[i]);
+                break;
+            }
+        }
+        return false;
+    }
+}
+
 int main(void)
 {
     board_init();
-    printf("QSPI W25Q128 AHB div test start\n");
-    /* QSPI ref clock from AHB; use current AHB/system clock */
+    printf("QSPI W25Q128 Progressive Frequency Test\n");
+    
+    /* 获取AHB时钟 */
     uint32_t ahb_clk = rcc_get_clock(RCC_CLOCK_AHB);
     if (ahb_clk == 0) ahb_clk = SystemCoreClock;
     printf("AHB clock: %lu Hz\n", (unsigned long)ahb_clk);
-    perf_timer_init(SystemCoreClock);
-
-    const uint32_t divisors[] = {4u, 8u, 16u, 32u}; 
-    for (unsigned t = 0; t < sizeof(divisors)/sizeof(divisors[0]); ++t)
+    
+    /* 第一步：使用最低频率获取详细Flash信息 */
+    printf("\n=== Step 1: Flash Detection @Low Frequency ===\n");
+    const uint32_t detect_freq = ahb_clk / 32;  /* 最低分频：AHB/32 */
+    printf("Detection frequency: %lu Hz\n", (unsigned long)detect_freq);
+    
+    qspi_cadence_init(ahb_clk, detect_freq);
+    qspi_dump_regs("after low frequency init");
+    
+    /* 获取详细Flash信息 */
+    get_flash_info();
+    
+    /* 初始化W25Qxx驱动以启用高级功能 */
+    w25qxx_info_t flash_info;
+    if (w25qxx_init(&flash_info, true, false) == 0)  /* 尝试启用Quad模式 */
     {
-        uint32_t div = divisors[t];
-        uint32_t target_sclk = ahb_clk / div;
-        printf("\n=== Test #%u: AHB/%lu -> target SCLK ~ %lu Hz ===\n", t + 1u, (unsigned long)div, (unsigned long)target_sclk);
-
-        qspi_cadence_init(ahb_clk, target_sclk);
-        qspi_dump_regs("after init");
-
-        uint8_t id[3] = {0};
-        if (qspi_read_id(id, sizeof id) == 0)
-        {
-            uint32_t sz = 0;
-            const char *name = decode_flash_name(id, &sz);
-            unsigned mib = (sz >> 20);
-            if (mib)
-                printf("RDID: %02X %02X %02X -> %s (%u MiB)\n", id[0], id[1], id[2], name, mib);
-            else
-                printf("RDID: %02X %02X %02X -> %s\n", id[0], id[1], id[2], name);
-        }
-        else
-        {
-            printf("RDID failed\n");
-        }
-
-        uint8_t sr1 = 0, sr2 = 0, sr3 = 0;
-        if (qspi_read_status(&sr1, &sr2, &sr3) == 0)
-            printf("SR1=%02X SR2=%02X SR3=%02X\n", sr1, sr2, sr3);
-
-        /* 也可以通过更高层的 w25qxx_init 试探配置 QE/4B（启用Quad以提升性能） */
-        w25qxx_info_t info;
-        (void)w25qxx_init(&info, true, false);  /* 启用Quad模式 */
-        
-        printf("Flash config: QE=%s 4B=%s\n", 
-               info.quad_enabled ? "ON" : "OFF", 
-               info.addr4b ? "ON" : "OFF");
-
-        /* 尝试解锁所有区域以防止写保护 */
-        (void)qspi_unlock_all();
-
-        /* 每个分频使用不同的 4K 扇区，避免重复磨损 */
-        const uint32_t addr = (t * 0x1000u);
-        uint8_t tx[256];
-        for (uint32_t i = 0; i < sizeof tx; i++) tx[i] = (uint8_t)(i ^ (uint8_t)div ^ 0xA5u);
-
-        printf("Erase 4K @0x%06lX...\n", (unsigned long)addr);
-        if (qspi_erase_4k(addr) != 0)
-        {
-            printf("Erase failed (div=%lu)\n", (unsigned long)div);
-            continue; /* 下一轮分频 */
-        }
-        if (qspi_read_status(&sr1, &sr2, &sr3) == 0)
-            printf("After erase: SR1=%02X SR2=%02X SR3=%02X\n", sr1, sr2, sr3);
-
-        qspi_dump_regs("before program");
-        printf("Program 256B page...\n");
-        if (qspi_page_program(addr, tx, sizeof tx) != 0)
-        {
-            printf("Program failed (div=%lu)\n", (unsigned long)div);
-            continue;
-        }
-        if (qspi_read_status(&sr1, &sr2, &sr3) == 0)
-            printf("After program: SR1=%02X SR2=%02X SR3=%02X\n", sr1, sr2, sr3);
-
-        qspi_dump_regs("before read");
-        uint8_t rx[256] = {0};
-        if (qspi_read(addr, rx, sizeof rx) != 0)
-        {
-            printf("Read back failed (div=%lu)\n", (unsigned long)div);
-            continue;
-        }
-        int ok = memcmp(tx, rx, sizeof tx) == 0;
-        printf("Verify %s at AHB/%lu\n", ok ? "OK" : "FAIL", (unsigned long)div);
-        if (!ok)
-        {
-            /* 打印首个不一致位置，便于定位 */
-            for (unsigned i = 0; i < sizeof tx; ++i)
-            {
-                if (tx[i] != rx[i])
-                {
-                    printf("Mismatch @%u: tx=%02X rx=%02X\n", i, tx[i], rx[i]);
-                    break;
-                }
-            }
-            continue;
-        }
-
-        /* 带宽测试：读 BW 与写 BW（间接/退化在驱动内处理） */
-        enum { BW_ADDR_BASE = 0x010000u }; /* 避免与功能性测试同扇区重叠 */
-        uint32_t bw_addr = BW_ADDR_BASE + (t * 0x100000u); /* 每轮 1MB 对齐 */
-        uint8_t bw_wr[BW_CHUNK_SIZE];  /* 使用较小的分块缓冲区 */
-        uint8_t bw_rd[BW_CHUNK_SIZE];
-        
-        /* 初始化测试数据模式 */
-        for (uint32_t i = 0; i < BW_CHUNK_SIZE; ++i) bw_wr[i] = (uint8_t)(i * 7u + 3u + (uint8_t)div);
-        
-        printf("Preparing 1MB test area...\n");
-        /* 先擦除覆盖范围（4K 对齐，1MB 共 256 个扇区） */
-        for (uint32_t off = 0; off < BW_TEST_SIZE; off += 0x1000u)
-        {
-            if (qspi_erase_4k(bw_addr + off) != 0)
-            {
-                printf("BW erase fail @0x%06lX (div=%lu)\n", (unsigned long)(bw_addr + off), (unsigned long)div);
-                break;
-            }
-            /* 每隔64个扇区显示进度 */
-            if ((off & 0x3F000u) == 0)
-            {
-                printf("Erased %luKB/%luKB\r", (unsigned long)(off >> 10), (unsigned long)(BW_TEST_SIZE >> 10));
-            }
-        }
-        printf("Erase complete: %luKB\n", (unsigned long)(BW_TEST_SIZE >> 10));
-    /* 写带宽（按 256B 页）。为避免 UART 干扰计时，暂时关闭驱动内部 verbose。 */
-    qspi_set_verbose(false);
-        printf("Writing 1MB data...\n");
-        /* 写带宽（按分块）：逐块计时并累加，避免计时器回绕影响 */
-        uint64_t wr_cycles_total = 0;
-        for (uint32_t chunk_off = 0; chunk_off < BW_TEST_SIZE; chunk_off += BW_CHUNK_SIZE)
-        {
-            /* 更新当前分块的测试数据 */
-            for (uint32_t i = 0; i < BW_CHUNK_SIZE; ++i) 
-                bw_wr[i] = (uint8_t)(i * 7u + 3u + (uint8_t)div + (uint8_t)(chunk_off >> 12));
-            
-            /* 按256B页写入当前分块 */
-            for (uint32_t off = 0; off < BW_CHUNK_SIZE; off += 256u)
-            {
-                uint32_t c0 = perf_now32();
-                if (qspi_page_program(bw_addr + chunk_off + off, &bw_wr[off], 256u) != 0)
-                {
-                    printf("BW program fail @0x%06lX (div=%lu)\n", (unsigned long)(bw_addr + chunk_off + off), (unsigned long)div);
-                    goto write_fail;
-                }
-                wr_cycles_total += (uint64_t)perf_cycles_since(c0);
-            }
-            /* 显示写入进度 */
-            if ((chunk_off & 0x3F000u) == 0)
-            {
-                printf("Written %luKB/%luKB\r", (unsigned long)((chunk_off + BW_CHUNK_SIZE) >> 10), (unsigned long)(BW_TEST_SIZE >> 10));
-            }
-        }
-        printf("Write complete: %luKB\n", (unsigned long)(BW_TEST_SIZE >> 10));
-        print_bw("Write BW", BW_TEST_SIZE, (uint32_t)(wr_cycles_total & 0xFFFFFFFFu), SystemCoreClock);
-
-write_fail:
-
-        /* 读带宽 */
-        printf("Reading 1MB data...\n");
-        uint64_t rd_cycles_total = 0;
-        bool read_ok = true;
-        for (uint32_t chunk_off = 0; chunk_off < BW_TEST_SIZE; chunk_off += BW_CHUNK_SIZE)
-        {
-            uint32_t c0 = perf_now32();
-            if (qspi_read(bw_addr + chunk_off, bw_rd, BW_CHUNK_SIZE) != 0)
-            {
-                printf("BW read fail @0x%06lX (div=%lu)\n", (unsigned long)(bw_addr + chunk_off), (unsigned long)div);
-                read_ok = false;
-                break;
-            }
-            rd_cycles_total += (uint64_t)perf_cycles_since(c0);
-            
-            /* 验证当前分块的数据正确性 */
-            for (uint32_t i = 0; i < BW_CHUNK_SIZE; ++i) 
-                bw_wr[i] = (uint8_t)(i * 7u + 3u + (uint8_t)div + (uint8_t)(chunk_off >> 12));
-            
-            if (memcmp(bw_wr, bw_rd, BW_CHUNK_SIZE) != 0)
-            {
-                printf("BW data mismatch @chunk 0x%06lX (div=%lu)\n", (unsigned long)chunk_off, (unsigned long)div);
-                read_ok = false;
-                break;
-            }
-            
-            /* 显示读取进度 */
-            if ((chunk_off & 0x3F000u) == 0)
-            {
-                printf("Read %luKB/%luKB\r", (unsigned long)((chunk_off + BW_CHUNK_SIZE) >> 10), (unsigned long)(BW_TEST_SIZE >> 10));
-            }
-        }
-        if (read_ok)
-        {
-            printf("Read complete: %luKB - Data verified OK\n", (unsigned long)(BW_TEST_SIZE >> 10));
-            print_bw("Read  BW", BW_TEST_SIZE, (uint32_t)(rd_cycles_total & 0xFFFFFFFFu), SystemCoreClock);
-        }
-        else
-        {
-            printf("Read test failed\n");
-            qspi_set_verbose(true);
-            continue;
-        }
-        
-        /* Quad读取性能测试（如果启用了QE） */
-        if (info.quad_enabled)
-        {
-            /* 暂时禁用Quad STIG读取测试，因为硬件限制导致数据不正确 */
-            printf("Quad STIG read disabled due to hardware limitations\n");
-            /*
-            uint8_t bw_quad[BW_CHUNK_SIZE];  // 独立的Quad读取缓冲区
-            uint64_t quad_cycles_total = 0;
-            bool quad_ok = true;
-            for (uint32_t chunk_off = 0; chunk_off < BW_TEST_SIZE; chunk_off += BW_CHUNK_SIZE)
-            {
-                uint32_t c2 = perf_now32();
-                if (qspi_read_quad_stig(bw_addr + chunk_off, bw_quad, BW_CHUNK_SIZE) != 0)
-                {
-                    printf("Quad read fail @0x%06lX (div=%lu)\n", (unsigned long)(bw_addr + chunk_off), (unsigned long)div);
-                    quad_ok = false;
-                    break;
-                }
-                uint32_t c3 = perf_now32();
-                quad_cycles_total += (uint64_t)perf_cycles_since(c2);
-                
-                // 验证Quad读取的数据正确性
-                for (uint32_t i = 0; i < BW_CHUNK_SIZE; ++i) 
-                    bw_wr[i] = (uint8_t)(i * 7u + 3u + (uint8_t)div + (uint8_t)(chunk_off >> 12));
-                
-                if (memcmp(bw_wr, bw_quad, BW_CHUNK_SIZE) != 0)
-                {
-                    printf("Quad data mismatch @chunk 0x%06lX (div=%lu)\n", (unsigned long)chunk_off, (unsigned long)div);
-                    quad_ok = false;
-                    break;
-                }
-            }
-            if (quad_ok)
-            {
-                print_bw("Quad  BW", BW_TEST_SIZE, (uint32_t)(quad_cycles_total & 0xFFFFFFFFu), SystemCoreClock);
-            }
-            */
-        }
-        
-        /* 重复读写测试 - 测试Flash的耐久性和一致性 */
-        printf("Repeat R/W test (5 cycles)...\n");
-        bool repeat_ok = true;
-        for (unsigned cycle = 0; cycle < 5 && repeat_ok; ++cycle)
-        {
-            printf("Cycle %u/5: ", cycle + 1);
-            
-            /* 擦除测试区域的前64KB */
-            uint32_t repeat_addr = bw_addr;
-            uint32_t repeat_size = 64u * 1024u;  /* 64KB for repeat test */
-            for (uint32_t off = 0; off < repeat_size; off += 0x1000u)
-            {
-                if (qspi_erase_4k(repeat_addr + off) != 0)
-                {
-                    printf("Repeat erase fail\n");
-                    repeat_ok = false;
-                    break;
-                }
-            }
-            if (!repeat_ok) break;
-            
-            /* 写入测试数据 */
-            for (uint32_t i = 0; i < BW_CHUNK_SIZE; ++i) 
-                bw_wr[i] = (uint8_t)(i * 13u + cycle + 0x55u);
-            
-            for (uint32_t off = 0; off < repeat_size; off += BW_CHUNK_SIZE)
-            {
-                for (uint32_t page_off = 0; page_off < BW_CHUNK_SIZE; page_off += 256u)
-                {
-                    if (qspi_page_program(repeat_addr + off + page_off, &bw_wr[page_off], 256u) != 0)
-                    {
-                        printf("Repeat write fail\n");
-                        repeat_ok = false;
-                        break;
-                    }
-                }
-                if (!repeat_ok) break;
-            }
-            if (!repeat_ok) break;
-            
-            /* 读回并验证 */
-            for (uint32_t off = 0; off < repeat_size; off += BW_CHUNK_SIZE)
-            {
-                if (qspi_read(repeat_addr + off, bw_rd, BW_CHUNK_SIZE) != 0)
-                {
-                    printf("Repeat read fail\n");
-                    repeat_ok = false;
-                    break;
-                }
-                if (memcmp(bw_wr, bw_rd, BW_CHUNK_SIZE) != 0)
-                {
-                    printf("Repeat verify fail\n");
-                    repeat_ok = false;
-                    break;
-                }
-            }
-            if (repeat_ok) printf("OK\n");
-        }
-        if (repeat_ok)
-        {
-            printf("Repeat R/W test passed\n");
-        }
-        
-        qspi_set_verbose(true);
+        printf("\nFlash configuration:\n");
+        printf("  Quad Enable: %s\n", flash_info.quad_enabled ? "YES" : "NO");
+        printf("  4-Byte Address: %s\n", flash_info.addr4b ? "YES" : "NO");
     }
-
-    printf("\nAll divider tests done.\n");
+    
+    /* 解锁所有保护区域 */
+    qspi_unlock_all();
+    
+    /* 第二步：从低频开始逐步提升频率做功能测试 */
+    printf("\n=== Step 2: Progressive Frequency Functional Tests ===\n");
+    
+    const uint32_t test_frequencies[] = {
+        ahb_clk / 32,  /* ~6MHz @192MHz AHB */
+        ahb_clk / 16,  /* ~12MHz */
+        ahb_clk / 8,   /* ~24MHz */
+        ahb_clk / 4,   /* ~48MHz */
+        ahb_clk / 2    /* ~96MHz */
+    };
+    
+    const char* freq_names[] = {
+        "AHB/32", "AHB/16", "AHB/8", "AHB/4", "AHB/2"
+    };
+    
+    uint32_t max_working_freq = 0;
+    bool all_passed = true;
+    
+    for (unsigned i = 0; i < sizeof(test_frequencies)/sizeof(test_frequencies[0]); i++)
+    {
+        uint32_t freq = test_frequencies[i];
+        printf("\n--- Test %u: %s (~%lu MHz) ---\n", 
+               i + 1, freq_names[i], (unsigned long)(freq / 1000000));
+        
+        /* 重新初始化QSPI控制器 */
+        qspi_cadence_init(ahb_clk, freq);
+        
+        /* 重新配置Flash（频率变化后可能需要重新配置） */
+        (void)w25qxx_init(&flash_info, true, false);
+        
+        /* 使用不同地址避免重复擦写同一扇区 */
+        uint32_t test_addr = 0x10000 + (i * 0x1000);  /* 从64KB开始，每个频率4KB间隔 */
+        
+        if (functional_test(test_addr, freq))
+        {
+            printf("Frequency %s: PASS\n", freq_names[i]);
+            max_working_freq = freq;
+        }
+        else
+        {
+            printf("Frequency %s: FAIL - stopping frequency progression\n", freq_names[i]);
+            all_passed = false;
+            break;
+        }
+    }
+    
+    if (max_working_freq > 0)
+    {
+        printf("\nMax working frequency: %lu Hz (~%lu MHz)\n", 
+               (unsigned long)max_working_freq, 
+               (unsigned long)(max_working_freq / 1000000));
+    }
+    
+    /* 测试软件复位功能 */
+    printf("\n=== Additional Tests ===\n");
+    printf("Testing software reset...\n");
+    if (qspi_software_reset() == 0)
+    {
+        printf("Software reset: OK\n");
+        /* 复位后重新初始化 */
+        qspi_cadence_init(ahb_clk, max_working_freq > 0 ? max_working_freq : detect_freq);
+        (void)w25qxx_init(&flash_info, true, false);
+    }
+    else
+    {
+        printf("Software reset: FAILED\n");
+    }
+    
+    /* 最终状态报告 */
+    printf("\n=== Test Summary ===\n");
+    if (all_passed)
+    {
+        printf("All frequency tests: PASSED\n");
+    }
+    else
+    {
+        printf("Some frequency tests: FAILED\n");
+    }
+    printf("Maximum working frequency: %lu Hz (~%lu MHz)\n", 
+           (unsigned long)max_working_freq, 
+           (unsigned long)(max_working_freq / 1000000));
+    
+    printf("\nTest completed. Entering idle loop.\n");
     while (1)
     {
         __WFI();

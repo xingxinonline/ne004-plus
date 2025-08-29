@@ -116,21 +116,32 @@ extern "C" {
 
 /* Common SPI flash opcodes (W25Qxx) */
 #define W25Q_CMD_RDID    0x9Fu
+#define W25Q_CMD_DEVID   0xABu  /* Device ID */
+#define W25Q_CMD_MANDEV  0x90u  /* Manufacturer/Device ID */
+#define W25Q_CMD_UNIQUE  0x4Bu  /* Read Unique ID */
 #define W25Q_CMD_RDSR1   0x05u
 #define W25Q_CMD_RDSR2   0x35u
 #define W25Q_CMD_RDSR3   0x15u
 #define W25Q_CMD_WREN    0x06u
 #define W25Q_CMD_PP      0x02u
+#define W25Q_CMD_PP_QUAD 0x32u  /* Quad Input Page Program */
 #define W25Q_CMD_READ    0x03u
 #define W25Q_CMD_FAST    0x0Bu
-#define W25Q_CMD_QUAD_READ 0x6Bu  /* Quad I/O Fast Read */
-#define W25Q_CMD_QUAD_FAST 0xEBu  /* Quad I/O Fast Read (continuous) */
+#define W25Q_CMD_QUAD_READ 0x6Bu  /* Quad Output Fast Read */
+#define W25Q_CMD_QUAD_FAST 0xEBu  /* Quad I/O Fast Read */
+#define W25Q_CMD_MANDEV_DUAL 0x92u  /* Manufacturer/Device ID Dual I/O */
+#define W25Q_CMD_MANDEV_QUAD 0x94u  /* Manufacturer/Device ID Quad I/O */
 #define W25Q_CMD_SE_4K   0x20u
+#define W25Q_CMD_BE_32K  0x52u  /* Block Erase (32KB) */
 #define W25Q_CMD_BE_64K  0xD8u
 #define W25Q_CMD_CE      0xC7u
+#define W25Q_CMD_SFDP    0x5Au  /* Read SFDP Register */
 /* Addressing mode */
 #define W25Q_CMD_EN4B    0xB7u
 #define W25Q_CMD_EX4B    0xE9u
+/* Reset commands */
+#define W25Q_CMD_RSTEN   0x66u  /* Enable Reset */
+#define W25Q_CMD_RST     0x99u  /* Reset Device */
 /* Status register write ops (Winbond) */
 #define W25Q_CMD_WRSR12  0x01u  /* write SR1 then SR2 */
 #define W25Q_CMD_WRSR2   0x31u  /* write SR2 only */
@@ -159,16 +170,26 @@ extern qspi_cadence_t g_qspi;
 void qspi_cadence_init(uint32_t ref_clk_hz, uint32_t sclk_hz);
 
 int qspi_read_id(uint8_t *id, uint32_t len);
+int qspi_read_device_id(uint8_t *dev_id);
+int qspi_read_manufacturer_device_id(uint8_t *mfg_id, uint8_t *dev_id);
+int qspi_read_unique_id(uint8_t *uid, uint32_t len);
+int qspi_read_sfdp(uint32_t addr, uint8_t *buf, uint32_t len);
 int qspi_read(uint32_t addr, void *buf, uint32_t len);
 int qspi_page_program(uint32_t addr, const void *buf, uint32_t len);
+int qspi_page_program_quad(uint32_t addr, const void *buf, uint32_t len);
 int qspi_erase_4k(uint32_t addr);
+int qspi_erase_32k(uint32_t addr);
 int qspi_erase_64k(uint32_t addr);
 int qspi_chip_erase(void);
+int qspi_reset_enable(void);
+int qspi_reset_device(void);
+int qspi_software_reset(void);
 int qspi_wait_ready(uint32_t timeout_ms);
 /* Feature helpers */
 int qspi_set_quad_enable(bool enable);
 int qspi_set_address_mode_4byte(bool enable);
 void qspi_configure_quad_read(bool enable);
+void qspi_configure_quad_io_read(bool enable);
 int qspi_read_quad_stig(uint32_t addr, void *buf, uint32_t len);
 
 /* Debug helpers */

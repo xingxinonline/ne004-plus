@@ -17,12 +17,15 @@
 /* CMSIS头文件 */
 #include "core_cm4.h"
 
-/* 启动模式定义 */
+/* 启动模式定义 - 扩展支持软件触发模式 */
 typedef enum {
-    BOOT_MODE_NORMAL = 0,        // 正常启动模式
-    BOOT_MODE_DOWNLOAD_GPIO,     // GPIO强制下载模式
-    BOOT_MODE_DOWNLOAD_SERIAL,   // 串口下载模式
-    BOOT_MODE_RECOVERY,          // 恢复模式
+    BOOT_MODE_NORMAL = 0,            // 正常启动模式
+    BOOT_MODE_DOWNLOAD_GPIO,         // GPIO强制下载模式（保留兼容）
+    BOOT_MODE_DOWNLOAD_SERIAL,       // 串口下载模式
+    BOOT_MODE_DOWNLOAD_SOFTWARE,     // 软件标志下载模式
+    BOOT_MODE_DOWNLOAD_DOUBLE_RESET, // 双重启下载模式
+    BOOT_MODE_RECOVERY,              // Flash恢复模式
+    BOOT_MODE_BOOT_FAILURE,          // 启动故障恢复模式
 } boot_mode_t;
 
 /* SBL信息结构 */
@@ -36,6 +39,7 @@ typedef struct {
 /* 函数声明 */
 void rbl_print_banner(void);
 boot_mode_t rbl_detect_boot_mode(void);
+boot_mode_t rbl_detect_boot_mode_enhanced(void);  // 新的增强检测函数
 int rbl_normal_boot(void);
 int rbl_get_sbl_info(sbl_info_t *sbl_info);
 int rbl_verify_sbl(const sbl_info_t *sbl_info);

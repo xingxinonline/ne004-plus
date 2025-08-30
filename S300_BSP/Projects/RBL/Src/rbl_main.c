@@ -14,8 +14,15 @@
 #include "rbl_download.h"
 #include "rbl_flash.h"
 #include "rbl_crc.h"
+#include "rbl_download_flags.h"  // 新增：下载标志管理
 #include "gpio.h"
 #include "rcc.h"
+
+/* 声明增强检测函数 */
+boot_mode_t rbl_detect_boot_mode_enhanced(void);
+bool rbl_check_enhanced_serial_window(void);
+int rbl_handle_enhanced_download_mode(boot_mode_t mode);
+const char *rbl_get_boot_mode_string_enhanced(boot_mode_t mode);
 
 /* RBL版本信息 */
 #define RBL_VERSION_MAJOR    1
@@ -67,25 +74,24 @@ int main(void)
         goto error_handler;
     }
     
-    /* 检测启动模式 */
-    boot_mode = rbl_detect_boot_mode();
+    /* 检测启动模式 - 使用增强版检测 */
+    boot_mode = rbl_detect_boot_mode_enhanced();
     g_rbl_runtime.last_boot_mode = boot_mode;
     
-    printf("[RBL] Boot mode: %s\r\n", rbl_get_boot_mode_string(boot_mode));
+    printf("[RBL] Boot mode: %s\r\n", rbl_get_boot_mode_string_enhanced(boot_mode));
     
     /* 根据启动模式执行相应流程 */
     switch (boot_mode) {
         case BOOT_MODE_DOWNLOAD_GPIO:
         case BOOT_MODE_DOWNLOAD_SERIAL:
+        case BOOT_MODE_DOWNLOAD_SOFTWARE:
+        case BOOT_MODE_DOWNLOAD_DOUBLE_RESET:
+        case BOOT_MODE_BOOT_FAILURE:
         case BOOT_MODE_RECOVERY:
-            /* 进入下载模式 */
-            ret = rbl_download_mode();
-            if (ret == 0) {
-                printf("[RBL] Download completed, restarting...\r\n");
-                rbl_system_delay_ms(1000);
-                rbl_system_reset();
-            } else {
-                printf("[RBL] Download failed: %d\r\n", ret);
+            /* 使用增强版下载模式处理 */
+            ret = rbl_handle_enhanced_download_mode(boot_mode);
+            if (ret != 0) {
+                printf("[RBL] Enhanced download mode failed: %d\r\n", ret);
                 goto error_handler;
             }
             break;
@@ -500,10 +506,13 @@ const char *rbl_get_reset_reason_string(void)
 const char *rbl_get_boot_mode_string(boot_mode_t mode)
 {
     switch (mode) {
-        case BOOT_MODE_NORMAL:          return "Normal";
-        case BOOT_MODE_DOWNLOAD_GPIO:   return "GPIO Download";
-        case BOOT_MODE_DOWNLOAD_SERIAL: return "Serial Download";
-        case BOOT_MODE_RECOVERY:        return "Recovery";
-        default:                        return "Unknown";
+        case BOOT_MODE_NORMAL:              return "Normal";
+        case BOOT_MODE_DOWNLOAD_GPIO:       return "GPIO Download";
+        case BOOT_MODE_DOWNLOAD_SERIAL:     return "Serial Download";
+        case BOOT_MODE_DOWNLOAD_SOFTWARE:   return "Software Download";
+        case BOOT_MODE_DOWNLOAD_DOUBLE_RESET: return "Double Reset";
+        case BOOT_MODE_RECOVERY:            return "Recovery";
+        case BOOT_MODE_BOOT_FAILURE:        return "Boot Failure";
+        default:                            return "Unknown";
     }
 }

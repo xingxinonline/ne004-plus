@@ -44,25 +44,111 @@ S300 RBL是专为PiMCHIP S300芯片设计的ROM引导加载程序(ROM Bootloader
 ./flash_program.sh info
 ```
 
-## 🔧 系统架构
+## � 芯片检测功能 (ESP32兼容)
 
-### 4阶段启动流程
-```
-ROMBOOT → RBL → SBL → Application
-   ↓       ↓     ↓         ↓
- 硬件初始  安全  系统     用户
-  化      验证  加载     应用
+### 自动芯片识别
+RBL集成了强大的串口芯片检测功能，类似ESP32的`esptool.py`，能够自动识别连接的芯片类型：
+
+#### 支持的芯片类型
+- **PiMCHIP S300** (Cortex-M4) - 本芯片
+- **ESP32系列** - ESP32, ESP32-C3, ESP32-S3, ESP32-C6
+- **ESP8266** - 经典WiFi芯片
+- **STM32系列** - F4, H7等ARM芯片
+- **其他** - AT命令兼容芯片
+
+#### 检测方法
+1. **ESP32 SYNC协议** - 使用ESP32标准的SYNC命令
+2. **AT命令检测** - 发送AT命令识别ESP8266等
+3. **S300专用协议** - 本地芯片的INFO/VERSION命令
+4. **自动波特率** - 支持常用波特率自动检测
+
+### 使用Python检测工具
+
+```bash
+# 自动检测所有串口的芯片
+python3 chip_detect_tool.py
+
+# 检测指定串口
+python3 chip_detect_tool.py --port /dev/ttyUSB0
+
+# 列出所有可用串口
+python3 chip_detect_tool.py --list
+
+# 调试模式 (显示原始响应)
+python3 chip_detect_tool.py --debug
 ```
 
-### 内存布局
+#### 典型输出示例
 ```
-Flash布局:
-0x000000 - 0x00FFFF : RBL区域 (64KB, 写保护)
-0x010000 - 0x02FFFF : SBL区域 (128KB)  
-0x030000 - 0xFFFFFF : 应用区域
+Auto-detecting chips on all serial ports...
+[INFO] Found 3 serial ports: /dev/ttyUSB0, /dev/ttyUSB1, /dev/ttyACM0
 
-SRAM布局:
-0x80000000 - 0x8003FFFF : 代码执行区 (256KB)
+Scanning /dev/ttyUSB0...
+[INFO] Trying ESP32 detection...
+[INFO] ESP32 SYNC response received
+✓ Found ESP32 on /dev/ttyUSB0
+
+==================================================
+Chip Detection Result  
+==================================================
+Port: /dev/ttyUSB0 @ 115200 baud
+Chip Type: ESP32
+Chip Name: ESP32
+Chip Family: ESP32
+Chip ID: 0x00f01d83
+Bootloader Mode: Yes
+Detection Method: detect_esp32_chip
+==================================================
+```
+
+### C语言API接口
+
+RBL也提供了完整的C语言芯片检测API：
+
+```c
+#include "chip_detection.h"
+
+// 自动检测芯片
+uart_detection_result_t result;
+int ret = chip_detect_auto(NULL, &result);
+if (ret == CHIP_DETECT_OK && result.detected) {
+    printf("Found: %s on %s\n", result.chip.name, result.port_name);
+    chip_print_detection_result(&result);
+}
+
+// 检测指定端口
+ret = chip_detect_port("/dev/ttyUSB0", 115200, &result);
+
+// ESP32兼容检测
+ret = chip_detect_esp32_compatible("/dev/ttyUSB0", &result);
+
+// 列出所有串口
+char ports[16][32];
+int count = chip_list_serial_ports(ports, 16);
+```
+
+### 集成到RBL启动流程
+
+芯片检测功能已集成到RBL的下载模式中：
+
+```c
+// RBL启动时的芯片识别
+void rbl_show_chip_info(void) {
+    chip_info_t local_info;
+    if (chip_detect_s300_local(&local_info) == CHIP_DETECT_OK) {
+        printf("[RBL] Local Chip: %s\n", local_info.name);
+        printf("[RBL] Chip ID: 0x%08X\n", local_info.chip_id);
+        printf("[RBL] Flash: %u KB, RAM: %u KB\n", 
+               local_info.flash_size/1024, local_info.ram_size/1024);
+    }
+    
+    // 扫描连接的外部芯片
+    uart_detection_result_t external;
+    if (chip_detect_auto("ttyUSB*", &external) == CHIP_DETECT_OK) {
+        printf("[RBL] External Chip: %s on %s\n", 
+               external.chip.name, external.port_name);
+    }
+}
 ```
 
 ## 🛡️ 安全特性

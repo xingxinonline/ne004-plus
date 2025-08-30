@@ -67,7 +67,6 @@ extern "C" {
 #define ESP_CHECKSUM_MAGIC      0xEF        /* ESP32校验魔数 */
 
 /* 内存配置 */
-#define SBL_STACK_SIZE          8192        /* SBL栈大小: 8KB */
 #define SBL_HEAP_SIZE           16384       /* SBL堆大小: 16KB */
 
 /* 断言宏 */

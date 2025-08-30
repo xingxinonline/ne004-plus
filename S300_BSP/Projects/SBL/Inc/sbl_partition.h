@@ -45,6 +45,9 @@ typedef struct {
     uint32_t flags;              /* 分区标志 */
 } __attribute__((packed)) esp_partition_info_t;
 
+/* 分区表配置 */
+#define ESP_PARTITION_TABLE_MAX_ENTRIES    16   /* 最大分区数量 */
+
 /* 分区表结构 */
 typedef struct {
     esp_partition_info_t partitions[ESP_PARTITION_TABLE_MAX_ENTRIES];
@@ -61,7 +64,6 @@ typedef struct partition_iterator {
 } esp_partition_iterator_t;
 
 /* 常量定义 */
-#define ESP_PARTITION_TABLE_MAX_ENTRIES 95
 #define ESP_PARTITION_TABLE_MAX_LEN     (ESP_PARTITION_TABLE_MAX_ENTRIES * sizeof(esp_partition_info_t) + sizeof(uint32_t))
 #define ESP_PARTITION_MAGIC             0x50AA
 #define ESP_PARTITION_MAGIC_MD5         0xEBEB

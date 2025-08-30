@@ -165,6 +165,18 @@ bool sbl_boot_should_rollback(const sbl_boot_env_t* boot_env);
  */
 int sbl_boot_perform_rollback(sbl_boot_env_t* boot_env);
 
+/**
+ * @brief 更新启动计数
+ * @return 0成功，非0失败
+ */
+int sbl_boot_increment_counter(void);
+
+/**
+ * @brief 重置重试计数
+ * @return 0成功，非0失败
+ */
+int sbl_boot_reset_retry_counter(void);
+
 #ifdef __cplusplus
 }
 #endif

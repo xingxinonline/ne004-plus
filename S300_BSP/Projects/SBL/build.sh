@@ -9,7 +9,7 @@ set -e  # 遇到错误立即退出
 # 配置变量
 #===============================================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$SCRIPT_DIR"
 BUILD_DIR="$PROJECT_ROOT/build"
 GCC_DIR="$PROJECT_ROOT/GCC"
 

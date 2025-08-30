@@ -10,9 +10,9 @@ VERSION_MINOR := 0
 VERSION_PATCH := 0
 
 # 目录配置
-PROJECT_ROOT := $(shell pwd)
-BSP_ROOT := $(PROJECT_ROOT)/../../..
-OUTPUT_DIR := $(PROJECT_ROOT)/build
+PROJECT_ROOT := $(shell dirname $(shell pwd))
+BSP_ROOT := $(PROJECT_ROOT)/../..
+OUTPUT_DIR := $(shell pwd)/build
 OBJ_DIR := $(OUTPUT_DIR)/obj
 BIN_DIR := $(OUTPUT_DIR)/bin
 
@@ -109,14 +109,14 @@ INCLUDES += -I$(BOARDS_DIR)
 SBL_SOURCES := $(wildcard $(SRC_DIR)/*.c)
 
 # 设备源文件
-DEVICE_SOURCES := $(DEVICE_DIR)/Source/system_s300.c
+DEVICE_SOURCES := $(DEVICE_DIR)/Source/system_S300.c
 
 # 驱动源文件
 DRIVER_SOURCES := $(DRIVERS_DIR)/SoC/RCC/Source/rcc.c
 DRIVER_SOURCES += $(DRIVERS_DIR)/SoC/GPIO/Source/gpio.c
 DRIVER_SOURCES += $(DRIVERS_DIR)/SoC/UART/Source/uart.c
 DRIVER_SOURCES += $(DRIVERS_DIR)/SoC/DMA/Source/dma.c
-DRIVER_SOURCES += $(DRIVERS_DIR)/SoC/QSPI/Source/qspi.c
+DRIVER_SOURCES += $(DRIVERS_DIR)/SoC/QSPI/Source/qspi_cadence.c
 
 # 板级源文件
 BOARD_SOURCES := $(BOARDS_DIR)/board.c
@@ -124,7 +124,7 @@ BOARD_SOURCES += $(BOARDS_DIR)/retarget.c
 BOARD_SOURCES += $(BOARDS_DIR)/syscalls.c
 
 # 启动文件
-STARTUP_SOURCES := $(DEVICE_DIR)/Source/GCC/startup_s300.s
+STARTUP_SOURCES := $(DEVICE_DIR)/Source/GCC/startup_S300.S
 
 # 所有源文件
 C_SOURCES := $(SBL_SOURCES) $(DEVICE_SOURCES) $(DRIVER_SOURCES) $(BOARD_SOURCES)
@@ -143,7 +143,7 @@ DEPS := $(C_OBJECTS:.o=.d)
 #******************************************************************************
 # 链接脚本
 #******************************************************************************
-LDSCRIPT := $(PROJECT_ROOT)/GCC/sbl.ld
+LDSCRIPT := $(PROJECT_ROOT)/sbl.ld
 
 #******************************************************************************
 # 构建目标

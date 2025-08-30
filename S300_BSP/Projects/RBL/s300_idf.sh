@@ -1,15 +1,16 @@
 #!/bin/bash
 
 # S300 IDF - ESP32风格的一键下载工具
-# 版本: 1.0
-# 日期: 2025-08-30
+# 版本: 2.0 - 集成了增强的进度条下载功能
+# 日期: 2025-08-31
 # 
 # 使用方法:
 #   ./s300_idf.sh build                     # 构建固件
-#   ./s300_idf.sh flash                     # 自动下载固件
+#   ./s300_idf.sh flash                     # 自动下载固件 (新增进度条)
 #   ./s300_idf.sh monitor                   # 监控串口
 #   ./s300_idf.sh build flash monitor       # 完整开发流程
 #   ./s300_idf.sh --port /dev/ttyUSB0 flash # 指定串口下载
+#   ./s300_idf.sh --demo                    # 进度条演示
 
 set -e
 
@@ -19,6 +20,8 @@ DEFAULT_BAUD="115200"
 BUILD_DIR="GCC/build"
 FIRMWARE_NAME="rbl.bin"
 CONFIG_FILE=".s300_idf_config"
+TOOLS_DIR="../../tools"
+DOWNLOAD_TOOL="$TOOLS_DIR/s300_download.py"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -47,20 +50,20 @@ warning() {
 }
 
 header() {
-    echo -e "${CYAN}$1${NC}"
+    echo -e "${CYAN}${BOLD}=== $1 ===${NC}"
 }
 
 # 帮助信息
 show_help() {
     cat << EOF
-S300 IDF - ESP32风格开发工具 v1.0
+S300 IDF - ESP32风格开发工具 v2.0 (Enhanced with Progress Bars)
 
 使用方法:
     $0 [选项] <命令> [命令...]
 
 命令:
     build                   构建固件
-    flash                   烧录固件到设备  
+    flash                   烧录固件到设备 (ESP32风格进度条)
     monitor                 监控串口输出
     clean                   清理构建文件
     
@@ -72,19 +75,24 @@ S300 IDF - ESP32风格开发工具 v1.0
 选项:
     --port, -p PORT        指定串口设备
     --baud, -b BAUD        指定波特率 (默认: $DEFAULT_BAUD)
+    --demo                 显示进度条演示
     --help, -h             显示帮助信息
 
 示例:
     $0 build                              # 构建固件
-    $0 flash                              # 自动检测串口并烧录
+    $0 flash                              # 自动检测串口并烧录 (带进度条)
     $0 --port /dev/ttyUSB0 flash         # 指定串口烧录
     $0 build flash monitor               # 完整开发流程
     $0 monitor                           # 仅监控串口
+    $0 --demo                            # 查看ESP32风格进度条演示
 
-注意:
-    - 首次使用会自动检测并保存串口配置
-    - 支持自动触发下载模式，无需手动操作
-    - 兼容多种串口工具：sz/rz, minicom, screen等
+特性:
+    - ESP32风格的彩色进度条显示
+    - 自动DTR/RTS复位，无需手动操作
+    - 自动串口检测和选择
+    - Ymodem协议支持，传输稳定可靠
+    - 实时速度显示和ETA计算
+    - 兼容多种下载方式作为备用
 EOF
 }
 
@@ -406,6 +414,35 @@ flash_firmware() {
     
     info "Found firmware: $firmware"
     
+    # 检查新下载工具是否可用
+    if [[ -f "$DOWNLOAD_TOOL" ]]; then
+        header "Using Enhanced S300 Download Tool (ESP32-style)"
+        
+        # 使用新的下载工具
+        local download_cmd="python3 \"$DOWNLOAD_TOOL\" -f \"$firmware\""
+        
+        if [[ -n "$port" ]]; then
+            download_cmd="$download_cmd -p \"$port\""
+        fi
+        
+        if [[ -n "$baud" && "$baud" != "$DEFAULT_BAUD" ]]; then
+            download_cmd="$download_cmd -b \"$baud\""
+        fi
+        
+        info "Executing: $download_cmd"
+        
+        if eval "$download_cmd"; then
+            success "Firmware flashed successfully with enhanced download tool!"
+            return 0
+        else
+            warning "Enhanced download tool failed, falling back to legacy methods..."
+        fi
+    else
+        warning "Enhanced download tool not found at $DOWNLOAD_TOOL"
+        warning "Falling back to legacy download methods..."
+    fi
+    
+    # 传统下载方法（作为备用）
     # 自动检测串口
     if [[ -z "$port" ]]; then
         if ! port=$(auto_detect_port); then
@@ -502,6 +539,17 @@ main() {
             --baud|-b)
                 baud="$2"
                 shift 2
+                ;;
+            --demo)
+                # 运行进度条演示
+                if [[ -f "$DOWNLOAD_TOOL" ]]; then
+                    header "S300 Download Tool - Progress Bar Demo"
+                    python3 "$DOWNLOAD_TOOL" --demo
+                else
+                    error "Download tool not found at $DOWNLOAD_TOOL"
+                    exit 1
+                fi
+                exit 0
                 ;;
             --help|-h)
                 show_help

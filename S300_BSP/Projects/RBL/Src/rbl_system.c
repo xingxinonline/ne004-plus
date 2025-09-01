@@ -228,7 +228,6 @@ int rbl_get_system_info(rbl_system_info_t *info)
 }
 
 /**
-/**
  * @brief 系统软复位
  */
 void rbl_system_reset(void)
@@ -258,6 +257,31 @@ uint32_t rbl_disable_irq(void)
 void rbl_restore_irq(uint32_t primask)
 {
     __set_PRIMASK(primask);
+}
+
+/**
+ * @brief 获取系统时钟频率
+ */
+uint32_t rbl_system_get_clock(void)
+{
+    return SystemCoreClock;
+}
+
+/**
+ * @brief 获取复位原因字符串
+ */
+const char *rbl_get_reset_reason_string(void)
+{
+    uint32_t reason = rbl_get_reset_reason();
+    
+    switch (reason) {
+        case 0x01: return "Power-on Reset";
+        case 0x02: return "External Reset";
+        case 0x04: return "Software Reset";
+        case 0x08: return "Watchdog Reset";
+        case 0x10: return "Low Power Reset";
+        default:   return "Unknown Reset";
+    }
 }
 
 /**

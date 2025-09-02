@@ -32,7 +32,7 @@ ASFLAGS := $(CFLAGS)
 LDFLAGS := -T$(LD_SCRIPT) -nostartfiles -Wl,--gc-sections -Wl,-Map=$(BUILD_DIR)/$(TARGET).map \
 	   -specs=nosys.specs
 
-# 仅保留极简工程：startup + rbl_simple.c + Phase 2/3 modules
+# 仅保留极简工程：startup + rbl_simple.c + Phase 2/3/4 modules
 SRCS := \
   $(DEVICE_DIR)/Source/GCC/startup_S300.S \
 	$(PROJECT_DIR)/Src/rbl_hal.c \
@@ -40,6 +40,8 @@ SRCS := \
 	$(ROOT)/Drivers/SoC/QSPI/Source/qspi_cadence.c \
 	$(PROJECT_DIR)/Src/rbl_qspi.c \
 	$(PROJECT_DIR)/Src/rbl_sbl.c \
+	$(PROJECT_DIR)/Src/rbl_ymodem.c \
+	$(PROJECT_DIR)/Src/rbl_download.c \
 	$(PROJECT_DIR)/Src/rbl_simple.c
 
 OBJS := $(patsubst %.S,$(BUILD_DIR)/%.o,$(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS)))

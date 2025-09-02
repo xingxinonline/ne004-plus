@@ -1,11 +1,14 @@
 #include "rbl_hal.h"
 #include "s300.h"
+#include <stdarg.h>
+#include <stdio.h>
 
 // 寄存器与地址：优先使用 s300_memmap.h 中的定义
 #ifndef UART3_BASE
 #define UART3_BASE   (0x40013000u)
 #endif
 #define UART_THR     (*(volatile uint32_t *)(UART3_BASE + 0x00))
+#define UART_RBR     (*(volatile uint32_t *)(UART3_BASE + 0x00))  /* 接收缓冲器 */
 #define UART_IER     (*(volatile uint32_t *)(UART3_BASE + 0x04))
 #define UART_IIR_FCR (*(volatile uint32_t *)(UART3_BASE + 0x08))
 #define UART_LCR     (*(volatile uint32_t *)(UART3_BASE + 0x0C))
@@ -57,8 +60,36 @@ void rbl_uart_write(const char *buf, size_t len) {
     }
 }
 
+size_t rbl_hal_uart_receive(uint8_t *buf, size_t max_len) {
+    size_t received = 0;
+    
+    while (received < max_len) {
+        /* 检查UART是否有数据可读 */
+        if (UART_LSR & 0x01) {  /* 数据准备位 */
+            buf[received] = (uint8_t)(UART_RBR & 0xFF);
+            received++;
+        } else {
+            break;  /* 没有更多数据 */
+        }
+    }
+    
+    return received;
+}
+
 void rbl_delay_cycles(uint32_t cycles) {
     for (volatile uint32_t i = 0; i < cycles; ++i) {
         __NOP();
+    }
+}
+
+void rbl_log_printf(const char *format, ...) {
+    char buffer[256];
+    va_list args;
+    va_start(args, format);
+    int len = vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    
+    if (len > 0) {
+        rbl_uart_write(buffer, (len < sizeof(buffer)) ? len : sizeof(buffer) - 1);
     }
 }

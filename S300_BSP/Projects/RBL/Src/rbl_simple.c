@@ -5,10 +5,11 @@
  * @date 2025-09-01
  */
 
-#include "s300.h"
 #include "rbl_hal.h"
 #include "rbl_qspi.h"
 #include "rbl_sbl.h"
+#include "rbl_download.h"
+#include "s300.h"
 
 // 系统时钟频率 (简化版本，直接设为24MHz)
 uint32_t SystemCoreClock = 24000000;
@@ -67,6 +68,31 @@ int main(void)
             {
                 RBL_LOG("[RBL] Phase 3 validation FAILED!\r\n");
                 RBL_LOG("[RBL] SBL invalid, entering download mode...\r\n");
+                
+                /* Phase 4: 进入下载模式 */
+                RBL_LOG("[RBL] === Phase 4: Download Mode ===\r\n");
+                rbl_download_init();
+                if (rbl_download_start()) {
+                    RBL_LOG("[RBL] Download mode started successfully\r\n");
+                    
+                    /* 下载主循环 */
+                    download_state_t download_state;
+                    do {
+                        download_state = rbl_download_process();
+                        rbl_delay_cycles(1000);  /* 短暂延时 */
+                    } while (download_state == DOWNLOAD_STATE_WAITING || 
+                             download_state == DOWNLOAD_STATE_RECEIVING);
+                    
+                    if (download_state == DOWNLOAD_STATE_COMPLETED) {
+                        RBL_LOG("[RBL] Download completed, restarting system...\r\n");
+                        rbl_delay_cycles(1000000);  /* 延时1秒 */
+                        NVIC_SystemReset();  /* 重启系统 */
+                    } else {
+                        RBL_LOG("[RBL] Download failed or timeout\r\n");
+                    }
+                } else {
+                    RBL_LOG("[RBL] Failed to start download mode\r\n");
+                }
             }
         } else {
             RBL_LOG("[RBL] Phase 2 validation FAILED!\r\n");

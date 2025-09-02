@@ -316,30 +316,90 @@ void init_s300_header(s300_header_t *header) {
 
 ---
 
-## 5. 校验和计算
+## 5. 校验与计算
 
-### 5.1 CRC32算法
+本节阐明 Header 与各段 Check 字段在“CRC32 模式”下的计算方式，需与 ROM 实现严格一致。请勿使用 zlib 等常见反射型 CRC32 例程计算 Header CRC。
+
+### 5.1 Header CRC32（ROM算法与覆盖范围）
+
+规则（必要信息）：
+
+- 多项式：0x04C11DB7（非反射）
+- 反射：禁用（处理顺序为高位在前，索引使用 (crc >> 24) ^ byte）
+- 初值（init）：0x00000000
+- 最终异或（xorout）：无（0x00000000）
+- 端序：结果以小端形式写入 Header 偏移 0xFC..0xFF
+- 覆盖范围：
+  1) 复制 Header 前 256 字节到临时缓冲区；
+  2) 将临时缓冲区的 0xFC..0xFF（4 字节）清零；
+  3) 对临时缓冲区完整 256 字节（0x00..0xFF）执行 ROM CRC32；
+  4) 将计算结果按小端写回原始 Header 的 0xFC..0xFF。
+
+参考 C 实现（表驱动）：
 
 ```c
-uint32_t calculate_crc32(const uint8_t *data, uint32_t length) {
-    uint32_t crc = 0xFFFFFFFF;
-    
-    for (uint32_t i = 0; i < length; i++) {
-        crc ^= data[i];
-        for (int j = 0; j < 8; j++) {
-            if (crc & 1) {
-                crc = (crc >> 1) ^ 0xEDB88320;
-            } else {
-                crc >>= 1;
-            }
-        }
+static const uint32_t crctab[256] = {
+    0x00000000, 0x04c11db7, 0x09823b6e, 0x0d4326d9,
+    0x130476dc, 0x17c56b6b, 0x1a864db2, 0x1e475005,
+    0x2608edb8, 0x22c9f00f, 0x2f8ad6d6, 0x2b4bcb61,
+    0x350c9b64, 0x31cd86d3, 0x3c8ea00a, 0x384fbdbd,
+    /* ... 省略，其它项同 ROM 表 ... */
+    0xafb010b1, 0xab710d06, 0xa6322bdf, 0xa2f33668,
+    0xbcb4666d, 0xb8757bda, 0xb5365d03, 0xb1f740b4,
+};
+
+static inline uint32_t crc32_rom_update(uint32_t crc, uint8_t byte)
+{
+    uint32_t idx = ((crc >> 24) ^ byte) & 0xFFu;
+    return (crc << 8) ^ crctab[idx];
+}
+
+uint32_t s300_header_crc32_rom(const uint8_t *hdr256)
+{
+    uint8_t buf[256];
+    for (int i = 0; i < 256; ++i) buf[i] = hdr256[i];
+    buf[0xFC] = buf[0xFD] = buf[0xFE] = buf[0xFF] = 0; // 先清零CRC字段
+
+    uint32_t crc = 0; // init = 0x00000000
+    for (int i = 0; i < 256; ++i) {
+        crc = crc32_rom_update(crc, buf[i]);
     }
-    
-    return ~crc;
+    return crc; // 无最终异或
 }
 ```
 
-### 5.2 校验和算法
+Python 参考（与生成脚本一致）：
+
+```python
+def crc32_rom(data: bytes, init: int = 0) -> int:
+    crc = init & 0xFFFFFFFF
+    for b in data:
+        idx = ((crc >> 24) ^ b) & 0xFF
+        crc = ((crc << 8) & 0xFFFFFFFF) ^ CRCTAB[idx]
+    return crc & 0xFFFFFFFF
+
+# 计算 Header CRC 的步骤
+hdr = bytearray(header[:256])
+hdr[0xFC:0x100] = b"\x00\x00\x00\x00"
+crc = crc32_rom(hdr, 0)
+# 小端写回到原始 header 的 0xFC..0xFF
+```
+
+验证要点：若按上述规则计算得到的值与 Header[0xFC..0xFF]（小端）相等，则 Header CRC 校验通过。
+
+### 5.2 分段 Check 字段（CRC32 模式）
+
+当 Pro[1:0] 选择 CRC32（值为 0x01）时，各段的 Check 字段建议也使用同一 ROM CRC32 算法计算，覆盖范围为对应段的原始负载数据（不含 Header）。
+
+规则：
+
+- 算法同 5.1（非反射 0x04C11DB7，init=0x00000000，无 xorout）；
+- 端序：Check 字段按小端存放；
+- 覆盖：段数据完整范围（Len 字段指定的字节数）。
+
+说明：当 Pro[1:0] 为 0x00（校验和模式）时，Check 字段为 32 位累加和，见 5.3。
+
+### 5.3 校验和算法（Check Mode=0x00）
 
 ```c
 uint32_t calculate_checksum(const uint8_t *data, uint32_t length) {
@@ -352,6 +412,14 @@ uint32_t calculate_checksum(const uint8_t *data, uint32_t length) {
     return sum;
 }
 ```
+
+---
+
+### 5.4 与 zlib CRC32 的区别（重要）
+
+- zlib 常见实现（多项式 0xEDB88320、反射/LSB-first、典型 init=0xFFFFFFFF、最终取反）不适用于 Header CRC；
+- Header CRC 与 ROM 完全一致，必须按 5.1 的非反射算法与覆盖规则执行；
+- 若混用 zlib 计算，会导致验签失败（与 ROM 读到的值不一致）。
 
 ---
 

@@ -6,6 +6,9 @@ DEVICE_DIR  := $(ROOT)/CMSIS/Device/PiMCHIP/S300
 # Use local 64KB-limited SRAM linker script for RBL
 LD_SCRIPT   := $(PROJECT_DIR)/ld/sram64.ld
 
+# 目标部署目录（可通过 make DEST_DIR=... 覆盖）
+DEST_DIR ?= /mnt/g/workspace/next/bin
+
 CC      := arm-none-eabi-gcc
 AS      := arm-none-eabi-gcc
 OBJCOPY := arm-none-eabi-objcopy
@@ -29,13 +32,14 @@ ASFLAGS := $(CFLAGS)
 LDFLAGS := -T$(LD_SCRIPT) -nostartfiles -Wl,--gc-sections -Wl,-Map=$(BUILD_DIR)/$(TARGET).map \
 	   -specs=nosys.specs
 
-# 仅保留极简工程：startup + rbl_simple.c
+# 仅保留极简工程：startup + rbl_simple.c + Phase 2/3 modules
 SRCS := \
   $(DEVICE_DIR)/Source/GCC/startup_S300.S \
 	$(PROJECT_DIR)/Src/rbl_hal.c \
 	$(ROOT)/Drivers/SoC/RCC/Source/rcc.c \
 	$(ROOT)/Drivers/SoC/QSPI/Source/qspi_cadence.c \
 	$(PROJECT_DIR)/Src/rbl_qspi.c \
+	$(PROJECT_DIR)/Src/rbl_sbl.c \
 	$(PROJECT_DIR)/Src/rbl_simple.c
 
 OBJS := $(patsubst %.S,$(BUILD_DIR)/%.o,$(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS)))
@@ -74,6 +78,12 @@ s300_image: $(BUILD_DIR)/$(TARGET).bin
 	python3 generate_s300_standard_header.py generate $(BUILD_DIR)/$(TARGET).bin $(BUILD_DIR)/$(TARGET)_header.bin
 	python3 merge_s300_image.py $(BUILD_DIR)/$(TARGET)_header.bin $(BUILD_DIR)/$(TARGET).bin $(BUILD_DIR)/$(TARGET)_complete.bin || echo "Merge script not found"
 	@echo "S300 complete image: $(BUILD_DIR)/$(TARGET)_complete.bin"
+	@mkdir -p $(DEST_DIR)
+	@cp -f $(BUILD_DIR)/$(TARGET)_complete.bin $(DEST_DIR)/
+	@echo "Copied to $(DEST_DIR)/$(TARGET)_complete.bin"
+
+install: s300_image
+	@true
 
 analyze_header: $(BUILD_DIR)/$(TARGET)_header.bin
 	@echo "Analyzing S300 header format..."
@@ -90,7 +100,7 @@ prep:
 clean:
 	rm -rf $(BUILD_DIR)
 
-.PHONY: all clean prep s300_image analyze_header help dbg
+.PHONY: all clean prep s300_image analyze_header help dbg install
 
 help:
 	@echo "S300 RBL Minimal Build"

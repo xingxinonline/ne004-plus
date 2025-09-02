@@ -8,6 +8,7 @@
 #include "s300.h"
 #include "rbl_hal.h"
 #include "rbl_qspi.h"
+#include "rbl_sbl.h"
 
 // 系统时钟频率 (简化版本，直接设为24MHz)
 uint32_t SystemCoreClock = 24000000;
@@ -49,6 +50,24 @@ int main(void)
         // Phase 2 验收：一页读写校验测试
         if (rbl_qspi_test_page_rw(0x10000) == 0) { // 使用64KB地址避免冲突
             RBL_LOG("[RBL] Phase 2 validation PASSED!\r\n");
+            
+            // Phase 3: SBL 完整性检查与跳转
+            RBL_LOG("\r\n[RBL] Starting Phase 3: SBL validation...\r\n");
+            if (rbl_sbl_validate() == 0)
+            {
+                RBL_LOG("[RBL] Phase 3 validation PASSED!\r\n");
+                
+                // 尝试加载并跳转到SBL
+                rbl_sbl_load_and_jump();
+                
+                // 如果到达这里，说明跳转失败
+                RBL_LOG("[RBL] SBL jump failed, entering download mode...\r\n");
+            }
+            else
+            {
+                RBL_LOG("[RBL] Phase 3 validation FAILED!\r\n");
+                RBL_LOG("[RBL] SBL invalid, entering download mode...\r\n");
+            }
         } else {
             RBL_LOG("[RBL] Phase 2 validation FAILED!\r\n");
         }

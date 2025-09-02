@@ -11,7 +11,7 @@ extern "C" {
 // 可选日志开关：1 启用串口输出，0 关闭以减小代码尺寸
 #ifndef RBL_LOG_ENABLE
 #define RBL_LOG_ENABLE 1
-#endif
+#endif /* 可用编译器宏 -DRBL_LOG_ENABLE=0 关闭日志以减小体积 */
 
 // UART 初始化（固定使用 UART3，115200 8N1），内部完成时钟与复用配置
 void rbl_uart_init(void);

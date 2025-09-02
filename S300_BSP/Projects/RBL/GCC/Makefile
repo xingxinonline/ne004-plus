@@ -15,7 +15,13 @@ SIZE    := arm-none-eabi-size
 CFLAGS  := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 \
 	   -Os -ffunction-sections -fdata-sections -fno-builtin -Wall -Wextra \
 	   -I$(DEVICE_DIR)/Include -I$(ROOT)/CMSIS/Core/Include \
-	   -I$(PROJECT_DIR)/Inc
+	   -I$(PROJECT_DIR)/Inc \
+	   -I$(ROOT)/Drivers/SoC/QSPI/Include \
+	   -I$(ROOT)/Drivers/SoC/RCC/Include
+
+# 允许通过 make LOG=0 关闭日志
+LOG ?= 1
+CFLAGS += -DRBL_LOG_ENABLE=$(LOG)
 
 ASFLAGS := $(CFLAGS)
 
@@ -27,6 +33,9 @@ LDFLAGS := -T$(LD_SCRIPT) -nostartfiles -Wl,--gc-sections -Wl,-Map=$(BUILD_DIR)/
 SRCS := \
   $(DEVICE_DIR)/Source/GCC/startup_S300.S \
 	$(PROJECT_DIR)/Src/rbl_hal.c \
+	$(ROOT)/Drivers/SoC/RCC/Source/rcc.c \
+	$(ROOT)/Drivers/SoC/QSPI/Source/qspi_cadence.c \
+	$(PROJECT_DIR)/Src/rbl_qspi.c \
 	$(PROJECT_DIR)/Src/rbl_simple.c
 
 OBJS := $(patsubst %.S,$(BUILD_DIR)/%.o,$(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS)))

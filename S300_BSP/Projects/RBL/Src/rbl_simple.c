@@ -7,6 +7,7 @@
 
 #include "s300.h"
 #include "rbl_hal.h"
+#include "rbl_qspi.h"
 
 // 系统时钟频率 (简化版本，直接设为24MHz)
 uint32_t SystemCoreClock = 24000000;
@@ -29,10 +30,19 @@ int main(void)
     // 初始化UART
     rbl_uart_init();
     // 发送启动信息
-    rbl_uart_write_str("\r\n==== S300 RBL Minimal v1.0 ====\r\n");
-    rbl_uart_write_str("Hello from SRAM RBL!\r\n");
-    rbl_uart_write_str("Build: " __DATE__ " " __TIME__ "\r\n");
-    rbl_uart_write_str("================================\r\n\r\n");
+    RBL_LOG("\r\n==== S300 RBL Minimal v1.0 ====\r\n");
+    RBL_LOG("Hello from SRAM RBL!\r\n");
+    RBL_LOG("Build: " __DATE__ " " __TIME__ "\r\n");
+    RBL_LOG("================================\r\n\r\n");
+
+    // Phase 2: 初始化 QSPI 并读取 JEDEC ID
+    rbl_qspi_init(SystemCoreClock, SystemCoreClock / 4u);
+    uint8_t id[3] = {0};
+    if (rbl_qspi_read_jedec_id(id) == 0) {
+        RBL_LOG("[RBL] QSPI JEDEC read ok\r\n");
+    } else {
+        RBL_LOG("[RBL] QSPI JEDEC read failed\r\n");
+    }
     uint32_t counter = 0;
     // 主循环
     while (1)
@@ -41,11 +51,11 @@ int main(void)
         // 每隔一段时间发送心跳
         if (counter % 1000000 == 0)
         {
-            rbl_uart_write_str("[RBL] Heartbeat ");
+            RBL_LOG("[RBL] Heartbeat ");
             // 简单的数字转字符串 (只显示低4位)
             char num = '0' + ((counter / 1000000) % 10);
             rbl_uart_write(&num, 1);
-            rbl_uart_write_str("\r\n");
+            RBL_LOG("\r\n");
         }
         // 简单延时
         rbl_delay_cycles(100);

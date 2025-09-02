@@ -33,5 +33,8 @@ SECTIONS
     *(COMMON)
     _ebss = .;
     __bss_end__ = _ebss;
+  /* 为 nosys/_sbrk 提供堆起始符号 */
+  end = __bss_end__;
+  _end = __bss_end__;
   } > SRAM1
 }

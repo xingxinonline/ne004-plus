@@ -1,165 +1,92 @@
-#
-# RBL (ROM Bootloader) Minimal Makefile - 最小版本
-# S300 PiMCHIP 项目
-#
+TARGET      := s300_rbl_simple
+BUILD_DIR   := build
+PROJECT_DIR := $(CURDIR)/..
+ROOT        := $(PROJECT_DIR)/../..
+DEVICE_DIR  := $(ROOT)/CMSIS/Device/PiMCHIP/S300
+# Use local 64KB-limited SRAM linker script for RBL
+LD_SCRIPT   := $(PROJECT_DIR)/ld/sram64.ld
 
-# 工具链配置
-CROSS_COMPILE = arm-none-eabi-
-CC = $(CROSS_COMPILE)gcc
-LD = $(CROSS_COMPILE)ld
-OBJCOPY = $(CROSS_COMPILE)objcopy
-OBJDUMP = $(CROSS_COMPILE)objdump
-SIZE = $(CROSS_COMPILE)size
+CC      := arm-none-eabi-gcc
+AS      := arm-none-eabi-gcc
+OBJCOPY := arm-none-eabi-objcopy
+OBJDUMP := arm-none-eabi-objdump
+SIZE    := arm-none-eabi-size
 
-# 目录结构
-PROJECT_ROOT = ..
-SRC_DIR = $(PROJECT_ROOT)/Src
-INC_DIR = $(PROJECT_ROOT)/Inc
-BUILD_DIR = build
-BSP_ROOT = ../../..
+CFLAGS  := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 \
+	   -Os -ffunction-sections -fdata-sections -fno-builtin -Wall -Wextra \
+	   -I$(DEVICE_DIR)/Include -I$(ROOT)/CMSIS/Core/Include \
+	   -I$(PROJECT_DIR)/Inc
 
-# S300 BSP目录
-CMSIS_DIR = $(BSP_ROOT)/CMSIS
-DEVICE_DIR = $(CMSIS_DIR)/Device/PiMCHIP/S300
-DRIVERS_DIR = $(BSP_ROOT)/Drivers
-BOARD_DIR = $(BSP_ROOT)/Boards/generic_evb
+ASFLAGS := $(CFLAGS)
 
-# 目标文件
-TARGET = rbl_minimal
-ELF_FILE = $(BUILD_DIR)/$(TARGET).elf
-BIN_FILE = $(BUILD_DIR)/$(TARGET).bin
-HEX_FILE = $(BUILD_DIR)/$(TARGET).hex
-MAP_FILE = $(BUILD_DIR)/$(TARGET).map
+# 最小链接选项，使用nosys
+LDFLAGS := -T$(LD_SCRIPT) -nostartfiles -Wl,--gc-sections -Wl,-Map=$(BUILD_DIR)/$(TARGET).map \
+	   -specs=nosys.specs
 
-# 编译选项
-MCU = -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard
+# 仅保留极简工程：startup + rbl_simple.c
+SRCS := \
+  $(DEVICE_DIR)/Source/GCC/startup_S300.S \
+	$(PROJECT_DIR)/Src/rbl_simple.c
 
-CFLAGS = $(MCU) \
-         -std=c99 \
-         -Wall \
-         -Wextra \
-         -Wno-unused-parameter \
-         -fdata-sections \
-         -ffunction-sections \
-         -g3 \
-         -Os
+OBJS := $(patsubst %.S,$(BUILD_DIR)/%.o,$(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS)))
 
-# 链接选项
-LDFLAGS = $(MCU) \
-          -specs=nano.specs \
-          -specs=nosys.specs \
-          -T rbl_linker.ld \
-          -Wl,--gc-sections \
-          -Wl,--print-memory-usage \
-          -Wl,-Map=$(MAP_FILE)
+all: $(BUILD_DIR)/$(TARGET).elf \
+	$(BUILD_DIR)/$(TARGET).bin \
+	$(BUILD_DIR)/$(TARGET).hex \
+	$(BUILD_DIR)/$(TARGET).dis
 
-# 包含路径
-INCLUDES = -I$(INC_DIR) \
-           -I$(CMSIS_DIR)/Core/Include \
-           -I$(DEVICE_DIR)/Include \
-           -I$(DRIVERS_DIR)/SoC/UART/Include \
-           -I$(DRIVERS_DIR)/SoC/RCC/Include \
-           -I$(BOARD_DIR)
+$(BUILD_DIR)/%.o: %.c | prep
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
 
-# 预定义宏
-DEFINES = -DS300 \
-          -DRBL_VERSION_MAJOR=1 \
-          -DRBL_VERSION_MINOR=0 \
-          -DRBL_VERSION_PATCH=0 \
-          -DHSE_CLOCK_HZ=24000000UL \
-          -DUSE_STDPERIPH_DRIVER \
-          -DRBL_MINIMAL=1
+$(BUILD_DIR)/%.o: %.S | prep
+	@mkdir -p $(dir $@)
+	$(AS) $(ASFLAGS) -c $< -o $@
 
-# 最小源文件集合
-SOURCES = $(SRC_DIR)/rbl_main_minimal.c \
-          $(SRC_DIR)/rbl_system.c \
-          $(SRC_DIR)/rbl_uart.c \
-          $(SRC_DIR)/startup_s300.c \
-          $(DRIVERS_DIR)/SoC/UART/Source/uart.c \
-          $(DRIVERS_DIR)/SoC/RCC/Source/rcc.c \
-          $(DEVICE_DIR)/Source/system_S300.c
+$(BUILD_DIR)/$(TARGET).elf: $(OBJS)
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
+	$(SIZE) $@
 
-# 生成对象文件列表
-OBJECTS = $(SOURCES:%.c=$(BUILD_DIR)/%.o)
-
-# 创建构建目录
-$(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)
-	mkdir -p $(BUILD_DIR)/$(SRC_DIR)
-	mkdir -p $(BUILD_DIR)/$(DRIVERS_DIR)/SoC/UART/Source
-	mkdir -p $(BUILD_DIR)/$(DRIVERS_DIR)/SoC/RCC/Source
-	mkdir -p $(BUILD_DIR)/$(DEVICE_DIR)/Source
-
-# 默认目标
-all: $(BIN_FILE) $(HEX_FILE) size
-
-# 生成ELF文件
-$(ELF_FILE): $(OBJECTS) | $(BUILD_DIR)
-	@echo "Linking $@"
-	$(CC) $(OBJECTS) $(LDFLAGS) -o $@
-
-# 生成BIN文件
-$(BIN_FILE): $(ELF_FILE)
-	@echo "Creating $@"
+$(BUILD_DIR)/$(TARGET).bin: $(BUILD_DIR)/$(TARGET).elf
 	$(OBJCOPY) -O binary $< $@
 
-# 生成HEX文件
-$(HEX_FILE): $(ELF_FILE)
-	@echo "Creating $@"
+# Intel HEX 输出
+$(BUILD_DIR)/$(TARGET).hex: $(BUILD_DIR)/$(TARGET).elf
 	$(OBJCOPY) -O ihex $< $@
 
-# 编译C文件
-$(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
-	@echo "Compiling $<"
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -c $< -o $@
+# 反汇编输出（.dis）：强制Thumb，包含源码注释，仅反汇编.text
+$(BUILD_DIR)/$(TARGET).dis: $(BUILD_DIR)/$(TARGET).elf
+	$(OBJDUMP) -d -S -C -M force-thumb,reg-names-std -j .text $< > $@
 
-# 显示大小信息
-size: $(ELF_FILE)
-	@echo ""
-	@echo "=== Size Information ==="
-	$(SIZE) $(ELF_FILE)
+# S300 header generation (简化命名)
+s300_image: $(BUILD_DIR)/$(TARGET).bin
+	@echo "Generating S300 Header + Complete image..."
+	python3 generate_s300_standard_header.py generate $(BUILD_DIR)/$(TARGET).bin $(BUILD_DIR)/$(TARGET)_header.bin
+	python3 merge_s300_image.py $(BUILD_DIR)/$(TARGET)_header.bin $(BUILD_DIR)/$(TARGET).bin $(BUILD_DIR)/$(TARGET)_complete.bin || echo "Merge script not found"
+	@echo "S300 complete image: $(BUILD_DIR)/$(TARGET)_complete.bin"
 
-# 生成S300头部+RBL组合文件
-s300_image: $(BIN_FILE)
-	@echo "Generating S300 Standard Header + RBL image..."
-	python3 generate_s300_standard_header.py generate $(BIN_FILE) $(BUILD_DIR)/rbl_minimal_header_std.bin
-	python3 merge_s300_image.py $(BUILD_DIR)/rbl_minimal_header_std.bin $(BIN_FILE) $(BUILD_DIR)/s300_rbl_minimal_complete_std.bin
-	@echo "S300 standard complete image: $(BUILD_DIR)/s300_rbl_minimal_complete_std.bin"
+analyze_header: $(BUILD_DIR)/$(TARGET)_header.bin
+	@echo "Analyzing S300 header format..."
+	python3 analyze_s300_header.py $(BUILD_DIR)/$(TARGET)_header.bin
 
-# 验证S300头部格式
-verify_header: $(BUILD_DIR)/rbl_minimal_header_std.bin
-	@echo "Verifying S300 header format..."
-	python3 generate_s300_standard_header.py verify $(BUILD_DIR)/rbl_minimal_header_std.bin
+# GDB 调试：连接到 :3333，并自动load到SRAM
+dbg: $(BUILD_DIR)/$(TARGET).elf
+	@echo "Starting GDB (expects server at :3333)..."
+	arm-none-eabi-gdb -ex "file $(BUILD_DIR)/$(TARGET).elf" -x $(ROOT)/gdbinit.common.gdb
 
-# 清理
+prep:
+	@mkdir -p $(BUILD_DIR)
+
 clean:
 	rm -rf $(BUILD_DIR)
 
-# 重新构建
-rebuild: clean all
+.PHONY: all clean prep s300_image analyze_header help dbg
 
-# 帮助信息
 help:
-	@echo "RBL (ROM Bootloader) Minimal Build System"
-	@echo ""
-	@echo "Targets:"
-	@echo "  all           - Build minimal RBL binary and hex files"
-	@echo "  s300_image    - Generate complete S300 Header + RBL minimal image"
-	@echo "  verify_header - Verify S300 header format compliance"
-	@echo "  size          - Show memory usage"
-	@echo "  clean         - Remove all build files"
-	@echo "  rebuild       - Clean and build"
-	@echo "  help          - Show this help"
-	@echo ""
-	@echo "Build configuration:"
-	@echo "  MCU: Cortex-M4 with FPU"
-	@echo "  Target: S300 PiMCHIP"
-	@echo "  Memory: SRAM execution (256KB)"
-	@echo "  Mode: Minimal test version"
-
-# 声明伪目标
-.PHONY: all clean rebuild size s300_image verify_header help
-
-# 自动生成依赖
--include $(OBJECTS:.o=.d)
+	@echo "S300 RBL Minimal Build"
+	@echo "======================"
+	@echo "make all           - 构建极简RBL，输出 .elf .bin .hex .dis (无printf)"
+	@echo "make s300_image    - 生成 header.bin 与 complete.bin"
+	@echo "make analyze_header- 分析header合规性"
+	@echo "make dbg           - 启动GDB调试 (:3333)"
+	@echo "make clean         - 清理构建产物"

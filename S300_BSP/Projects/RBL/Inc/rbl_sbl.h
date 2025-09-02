@@ -10,14 +10,19 @@ extern "C" {
 
 // === SBL 配置参数 ===
 
-// SBL 在 Flash 中的起始地址（可配置）
+// SBL 在 Flash 中的起始地址（QSPI XIP模式）
 #ifndef SBL_FLASH_START_ADDR
-#define SBL_FLASH_START_ADDR    0x20000     // 128KB offset
+#define SBL_FLASH_START_ADDR    0x08010000  // QSPI Flash XIP base(0x08000000) + 64KB offset
+#endif
+
+// SBL 在 Flash 中的物理偏移地址（用于QSPI读取）
+#ifndef SBL_FLASH_OFFSET
+#define SBL_FLASH_OFFSET        0x10000     // 64KB offset in Flash
 #endif
 
 // SBL 最大尺寸（可配置）
 #ifndef SBL_MAX_SIZE
-#define SBL_MAX_SIZE           0x40000     // 256KB max
+#define SBL_MAX_SIZE           0x20000     // 128KB max
 #endif
 
 // SBL 加载到 SRAM 的地址
@@ -45,6 +50,9 @@ bool rbl_is_valid_stack_pointer(uint32_t sp);
 
 // 检查ARM Cortex-M复位向量是否合理（奇数地址，Thumb标志）
 bool rbl_is_valid_reset_vector(uint32_t reset_vector);
+
+// 配置QSPI为XIP模式
+int rbl_configure_xip_mode(void);
 
 #ifdef __cplusplus
 }

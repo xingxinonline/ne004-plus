@@ -2,6 +2,7 @@
 #include "s300.h"
 #include <stdarg.h>
 #include <stdio.h>
+#include "rcc.h"
 
 // 寄存器与地址：优先使用 s300_memmap.h 中的定义
 #ifndef UART3_BASE
@@ -46,11 +47,18 @@ void rbl_uart_init(void) {
     UART_LCR = 0x03u;       // 8N1
     UART_MCR = 0x00u;
 
-    // 设置波特率：DLAB = 1，DLL=13, DLH=0（基于 24MHz）
-    UART_LCR |= 0x80u;
-    *(volatile uint32_t *)(UART3_BASE + 0x00) = 13u; // DLL
-    *(volatile uint32_t *)(UART3_BASE + 0x04) = 0u;  // DLH
-    UART_LCR &= ~0x80u;
+    // 动态设置波特率：根据 APB1 时钟计算分频
+    uint32_t apb1_hz = rcc_get_clock(RCC_CLOCK_APB1);
+    if (apb1_hz == 0u) {
+        apb1_hz = 24000000u; // 回退到24MHz
+    }
+    const uint32_t baud = 115200u;
+    uint32_t divisor = (apb1_hz + (16u * baud / 2u)) / (16u * baud); // 四舍五入
+    if (divisor == 0u) divisor = 1u;
+    UART_LCR |= 0x80u;      // DLAB=1
+    *(volatile uint32_t *)(UART3_BASE + 0x00) = (divisor & 0xFFu);        // DLL
+    *(volatile uint32_t *)(UART3_BASE + 0x04) = ((divisor >> 8) & 0xFFu); // DLH
+    UART_LCR &= ~0x80u;     // DLAB=0
 }
 
 void rbl_uart_write(const char *buf, size_t len) {

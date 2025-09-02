@@ -13,6 +13,11 @@ extern "C" {
 #define RBL_LOG_ENABLE 1
 #endif /* 可用编译器宏 -DRBL_LOG_ENABLE=0 关闭日志以减小体积 */
 
+// 详细日志开关（例如打印原始字节/向量表等），默认关闭
+#ifndef RBL_LOG_VERBOSE
+#define RBL_LOG_VERBOSE 0
+#endif
+
 // UART 初始化（固定使用 UART3，115200 8N1），内部完成时钟与复用配置
 void rbl_uart_init(void);
 
@@ -49,6 +54,12 @@ int rbl_printf_stub(const char *format, ...);
 #define RBL_LOG(format, ...) rbl_log_printf(format, ##__VA_ARGS__)
 #else
 #define RBL_LOG(format, ...) ((void)0)
+#endif
+
+#if RBL_LOG_ENABLE && RBL_LOG_VERBOSE
+#define RBL_VLOG(format, ...) rbl_log_printf(format, ##__VA_ARGS__)
+#else
+#define RBL_VLOG(format, ...) ((void)0)
 #endif
 
 #ifdef __cplusplus

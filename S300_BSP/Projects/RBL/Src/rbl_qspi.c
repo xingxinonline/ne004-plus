@@ -4,6 +4,14 @@
 #include "rcc.h"  // 时钟控制
 #include <stdbool.h>  // bool 类型
 
+// 保护区：防止擦写系统镜像（Header+RBL+预留到SBL以前）
+#ifndef RBL_FLASH_PROTECT_START
+#define RBL_FLASH_PROTECT_START   0x00000u
+#endif
+#ifndef RBL_FLASH_PROTECT_END
+#define RBL_FLASH_PROTECT_END     0x20000u  // 128KB内保留（覆盖Header+RBL和余量）
+#endif
+
 void rbl_qspi_init(uint32_t ref_clk_hz, uint32_t sclk_hz)
 {
     RBL_LOG("[RBL] QSPI init step 1: enabling clocks...\r\n");
@@ -126,6 +134,13 @@ int rbl_qspi_erase_4k(uint32_t addr)
 int rbl_qspi_test_page_rw(uint32_t test_addr)
 {
     RBL_LOG("[RBL] Flash R/W test starting...\r\n");
+
+    // 防护：避免擦写落入受保护区间
+    if ((test_addr & ~0xFFFu) >= RBL_FLASH_PROTECT_START && (test_addr & ~0xFFFu) < RBL_FLASH_PROTECT_END)
+    {
+        RBL_LOG("[RBL] Test address 0x%08X in protected region, skip test.\r\n", test_addr);
+        return 0; // 视为通过，避免破坏
+    }
     
     // 准备测试数据（256字节）
     uint8_t write_data[256];

@@ -16,9 +16,12 @@ extern "C" {
 #endif
 
 /* 下载配置 */
-#define DOWNLOAD_FLASH_START_ADDR   0x10000000  /* SBL存储起始地址 */
+// === 下载配置参数 ===
+
+// YMODEM下载到Flash的起始地址
+#define DOWNLOAD_FLASH_START_ADDR   0x80000000  /* Flash起始地址(QSPI Flash) - 下载完整镜像 */
 #define DOWNLOAD_SECTOR_SIZE        4096        /* Flash扇区大小 */
-#define DOWNLOAD_MAX_SIZE          (256 * 1024) /* 最大下载大小 */
+#define DOWNLOAD_MAX_SIZE          (128 * 1024) /* 最大下载大小(128KB) */
 #define DOWNLOAD_TIMEOUT_MS         30000       /* 下载超时（30秒） */
 
 /* 下载状态 */

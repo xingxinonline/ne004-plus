@@ -148,8 +148,18 @@ def generate_s300_standard_header(rbl_bin_path, output_path):
 
     # 0x00: Pro字段 - 控制系统程序属性
     # Bit[7:2]=0x02: 控制程序在flash中存储，运行时在ram1(384k)
-    # Bit[1:0]=0x01: CRC32校验
-    cortex_m4_pro = 0x00f3400b  # (0x02 << 2) | 0x01 = 0x08 | 0x01 = 0x09
+    # Bit[1:0]=CheckMode: 3=不校验(默认), 1=CRC32 等
+    # 说明：默认按用户要求设置为3（不校验）。如需覆盖，可设置环境变量 S300_CHECK_MODE=0|1|2|3。
+    check_mode_default = 3
+    try:
+        check_mode_env = int(
+            os.environ.get("S300_CHECK_MODE", str(check_mode_default))
+        )
+    except Exception:
+        check_mode_env = check_mode_default
+    check_mode = check_mode_env & 0x3
+    cortex_m4_pro_base = 0x00f34008  # 低两位清零的基值
+    cortex_m4_pro = cortex_m4_pro_base | check_mode
     struct.pack_into('<I', header, 0x00, cortex_m4_pro)
 
     # 0x04: Addr - RBL在Flash中的地址 (紧跟Header之后)
@@ -237,6 +247,10 @@ def generate_s300_standard_header(rbl_bin_path, output_path):
     print(f"RBL Flash address: 0x{rbl_flash_addr:08X}")
     print(f"RBL SRAM address: 0x{rbl_sram_addr:08X}")
     print(f"RBL size: {rbl_size} bytes")
+    print(
+        f"Header CheckMode: {check_mode} "
+        f"({'no-check' if check_mode == 3 else 'with-check'})"
+    )
     print(f"Reference clock: {ref_clock} Hz ({ref_clock/1000000:.1f} MHz)")
     print(f"Output clock: {fout_clock} Hz ({fout_clock/1000000:.1f} MHz)")
     print(f"PLL enabled: {en == 0x3} (en={en})")

@@ -10,14 +10,15 @@
 #include "rbl_sbl.h"
 #include "rbl_download.h"
 #include "s300.h"
+#include "rcc.h"
 
-// 系统时钟频率 (简化版本，直接设为24MHz)
+// 系统时钟频率（启动默认24MHz，PLL后更新为目标频率）
 uint32_t SystemCoreClock = 24000000;
 
 // 系统初始化函数 (startup.s需要的)
 void SystemInit(void)
 {
-    // 简单初始化，什么都不做
+    // 基础初始化，保持在HSE 24MHz，PLL稍后由主程序配置
     SystemCoreClock = 24000000;
 }
 
@@ -36,8 +37,19 @@ int main(void)
     for (volatile int i = 0; i < 100000; i++) {
         __NOP();
     }
+
+    // 配置PLL至192MHz，并切换系统时钟到PLL
+    // 目标：SYSCLK = 192MHz，HSE=24MHz
+    // 选取参数：refdiv=2, fbdiv=64, frac=0, postdiv1=2, postdiv2=2
+    // 粗略计算：Fvco=(24/2)*64=768MHz；Fout=Fvco/(2*2*2)=48MHz?（注意驱动内部又除2）
+    // 根据 rcc.c 的实现，最终 system 时钟使用 CM4 PLL，并在 get_clock 有一次除2路径。
+    // 参数：refdiv=1, fbdiv=64, postdiv1=2, postdiv2=2 -> 24*64/(2*2*2) = 192MHz
+    if (rcc_init_cortex_m4_pll(1, 64, 0, 2, 2) == 0)
+    {
+        SystemCoreClock = rcc_get_clock(RCC_CLOCK_SYSTEM);
+    }
     
-    // 初始化UART
+    // 初始化UART（动态基于当前APB1时钟计算波特率）
     rbl_uart_init();
     
     // 再做一次延时，确保UART初始化后稳定
@@ -50,10 +62,10 @@ int main(void)
     RBL_LOG("Build: " __DATE__ " " __TIME__ "\r\n");
     RBL_LOG("================================\r\n\r\n");
 
-    // Phase 2: 初始化 QSPI 并读取 JEDEC ID (使用安全的低频率)
+    // Phase 2: 初始化 QSPI 并读取 JEDEC ID (使用系统时钟的1/4作为SCLK)
     RBL_LOG("[RBL] Starting Phase 2: QSPI initialization...\r\n");
-    uint32_t ahb_clk = SystemCoreClock;  // 24MHz
-    uint32_t safe_freq = ahb_clk / 8;    // 3MHz - 很安全的频率
+    uint32_t ahb_clk = SystemCoreClock;  // e.g. 192MHz
+    uint32_t safe_freq = ahb_clk / 4;    // QSPI SCLK = SYSCLK/4（带宽与稳定折中）
     RBL_LOG("[RBL] About to call rbl_qspi_init()...\r\n");
     rbl_qspi_init(ahb_clk, safe_freq);
     RBL_LOG("[RBL] rbl_qspi_init() completed\r\n");
@@ -61,8 +73,10 @@ int main(void)
     if (rbl_qspi_read_jedec_id(id) == 0) {
         RBL_LOG("[RBL] QSPI JEDEC read ok\r\n");
         
-        // Phase 2 验收：一页读写校验测试
-        if (rbl_qspi_test_page_rw(0x10000) == 0) { // 使用64KB地址避免冲突
+    // Phase 2 验收：一页读写校验测试
+    // 注意：0x10000(64KB) 处是 SBL 存放区域，不能用来做擦写测试
+    // 改用更高的安全地址 0x40000 (256KB) 以避免覆盖系统镜像
+    if (rbl_qspi_test_page_rw(0x40000) == 0) {
             RBL_LOG("[RBL] Phase 2 validation PASSED!\r\n");
             
             // Phase 3: SBL 完整性检查与跳转

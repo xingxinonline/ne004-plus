@@ -26,6 +26,7 @@ LDFLAGS := -T$(LD_SCRIPT) -nostartfiles -Wl,--gc-sections -Wl,-Map=$(BUILD_DIR)/
 # 仅保留极简工程：startup + rbl_simple.c
 SRCS := \
   $(DEVICE_DIR)/Source/GCC/startup_S300.S \
+	$(PROJECT_DIR)/Src/rbl_hal.c \
 	$(PROJECT_DIR)/Src/rbl_simple.c
 
 OBJS := $(patsubst %.S,$(BUILD_DIR)/%.o,$(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS)))

@@ -17,6 +17,7 @@ SIZE    := arm-none-eabi-size
 
 CFLAGS  := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 \
 	   -Os -ffunction-sections -fdata-sections -fno-builtin -Wall -Wextra \
+	   -g3 -gdwarf-2 \
 	   -I$(DEVICE_DIR)/Include -I$(ROOT)/CMSIS/Core/Include \
 	   -I$(PROJECT_DIR)/Inc \
 	   -I$(ROOT)/Drivers/SoC/QSPI/Include \
@@ -25,6 +26,8 @@ CFLAGS  := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 \
 # 允许通过 make LOG=0 关闭日志
 LOG ?= 1
 CFLAGS += -DRBL_LOG_ENABLE=$(LOG)
+# 禁用QSPI驱动中的printf调试输出，避免链接复杂的stdio库
+CFLAGS += -Dprintf=rbl_printf_stub
 
 ASFLAGS := $(CFLAGS)
 
@@ -42,6 +45,7 @@ SRCS := \
 	$(PROJECT_DIR)/Src/rbl_sbl.c \
 	$(PROJECT_DIR)/Src/rbl_ymodem.c \
 	$(PROJECT_DIR)/Src/rbl_download.c \
+	$(PROJECT_DIR)/Src/rbl_fault.c \
 	$(PROJECT_DIR)/Src/rbl_simple.c
 
 OBJS := $(patsubst %.S,$(BUILD_DIR)/%.o,$(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS)))

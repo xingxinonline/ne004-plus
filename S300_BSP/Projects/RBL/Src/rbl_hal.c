@@ -82,14 +82,21 @@ void rbl_delay_cycles(uint32_t cycles) {
     }
 }
 
+/* 简化的字符串长度计算 */
+static size_t rbl_strlen(const char *s) {
+    size_t len = 0;
+    while (s[len]) len++;
+    return len;
+}
+
+/* 简化的printf实现，避免使用vsnprintf */
 void rbl_log_printf(const char *format, ...) {
-    char buffer[256];
-    va_list args;
-    va_start(args, format);
-    int len = vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
-    
-    if (len > 0) {
-        rbl_uart_write(buffer, (len < sizeof(buffer)) ? len : sizeof(buffer) - 1);
-    }
+    /* 暂时使用简化版本，直接输出格式字符串 */
+    rbl_uart_write(format, rbl_strlen(format));
+}
+
+/* 空的printf替代函数，用于替换QSPI驱动中的调试输出 */
+int rbl_printf_stub(const char *format, ...) {
+    (void)format;  /* 静默编译器警告 */
+    return 0;
 }

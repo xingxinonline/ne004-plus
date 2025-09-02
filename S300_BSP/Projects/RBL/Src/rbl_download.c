@@ -34,7 +34,7 @@ void rbl_download_init(void)
     rbl_ymodem_set_data_callback(download_data_callback);
     rbl_ymodem_set_progress_callback(download_progress_callback);
     
-    RBL_LOG("下载管理器初始化完成\r\n");
+    RBL_LOG("Download manager initialized\r\n");
 }
 
 /**
@@ -46,16 +46,16 @@ bool rbl_download_start(void)
         return false;
     }
     
-    RBL_LOG("\r\n=== 进入下载模式 ===\r\n");
-    RBL_LOG("等待YMODEM传输...\r\n");
-    RBL_LOG("请使用支持YMODEM的终端软件发送文件\r\n");
+    RBL_LOG("\r\n=== Entering Download Mode ===\r\n");
+    RBL_LOG("Waiting for YMODEM transfer...\r\n");
+    RBL_LOG("Please use YMODEM compatible terminal to send file\r\n");
     
     /* 初始化YMODEM接收器 */
     rbl_ymodem_init(&s_ymodem_receiver, DOWNLOAD_FLASH_START_ADDR);
     
     /* 启动YMODEM接收 */
     if (!rbl_ymodem_start_receive(&s_ymodem_receiver)) {
-        RBL_LOG("启动YMODEM接收失败\r\n");
+        RBL_LOG("Start YMODEM receive failed\r\n");
         return false;
     }
     
@@ -79,7 +79,7 @@ download_state_t rbl_download_process(void)
     
     /* 检查超时 */
     if (rbl_download_is_timeout()) {
-        RBL_LOG("下载超时\r\n");
+        RBL_LOG("Download timeout\r\n");
         s_download_state = DOWNLOAD_STATE_TIMEOUT;
         return s_download_state;
     }
@@ -89,7 +89,7 @@ download_state_t rbl_download_process(void)
     if (rbl_hal_uart_receive(&byte, 1) > 0) {
         if (s_download_state == DOWNLOAD_STATE_WAITING) {
             s_download_state = DOWNLOAD_STATE_RECEIVING;
-            RBL_LOG("开始接收数据...\r\n");
+            RBL_LOG("Start receiving data...\r\n");
         }
         
         /* 处理接收到的字节 */
@@ -100,7 +100,7 @@ download_state_t rbl_download_process(void)
             if (ymodem_state == YMODEM_STATE_COMPLETED) {
                 s_download_stats.end_time = get_tick_ms();
                 s_download_state = DOWNLOAD_STATE_COMPLETED;
-                RBL_LOG("下载完成！\r\n");
+                RBL_LOG("Download completed!\r\n");
                 rbl_download_print_stats();
             } else if (ymodem_state == YMODEM_STATE_CANCELLED) {
                 s_download_state = DOWNLOAD_STATE_ERROR;

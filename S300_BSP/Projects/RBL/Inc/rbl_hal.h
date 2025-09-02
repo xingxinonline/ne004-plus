@@ -41,6 +41,9 @@ void rbl_delay_cycles(uint32_t cycles);
 // 格式化日志输出函数
 void rbl_log_printf(const char *format, ...);
 
+// printf替代函数声明（用于替换QSPI驱动中的printf）
+int rbl_printf_stub(const char *format, ...);
+
 // 轻量日志宏（支持格式化）
 #if RBL_LOG_ENABLE
 #define RBL_LOG(format, ...) rbl_log_printf(format, ##__VA_ARGS__)

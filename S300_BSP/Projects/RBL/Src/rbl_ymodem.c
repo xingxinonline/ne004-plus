@@ -71,7 +71,16 @@ void rbl_ymodem_init(ymodem_receiver_t *receiver, uint32_t flash_start_addr)
     s_packet_index = 0;
     s_packet_buffer = (uint8_t*)&s_current_packet;
     
-    RBL_LOG("YMODEM: 初始化完成，Flash地址=0x%08X\r\n", flash_start_addr);
+    RBL_LOG("YMODEM: Init completed, Flash=0x");
+    /* 手动输出十六进制地址 */
+    char addr_str[16];
+    for (int i = 7; i >= 0; i--) {
+        uint32_t nibble = (flash_start_addr >> (i * 4)) & 0xF;
+        addr_str[7-i] = (nibble < 10) ? ('0' + nibble) : ('A' + nibble - 10);
+    }
+    addr_str[8] = '\0';
+    RBL_LOG(addr_str);
+    RBL_LOG("\r\n");
 }
 
 /**
@@ -84,7 +93,7 @@ bool rbl_ymodem_start_receive(ymodem_receiver_t *receiver)
     receiver->state = YMODEM_STATE_WAITING_HEADER;
     receiver->retry_count = 0;
     
-    RBL_LOG("YMODEM: 启动接收，等待传输...\r\n");
+    RBL_LOG("YMODEM: Start receive, waiting...\r\n");
     
     /* 发送'C'请求CRC模式 */
     rbl_ymodem_send_c();
@@ -108,16 +117,35 @@ bool rbl_ymodem_process_byte(ymodem_receiver_t *receiver, uint8_t byte)
                     YMODEM_PACKET_SIZE_128 : YMODEM_PACKET_SIZE_1024;
                 s_packet_index = 1;
                 receiver->state = YMODEM_STATE_RECEIVING_DATA;
-                RBL_LOG("YMODEM: 开始接收数据包，大小=%d\r\n", s_current_packet.data_size);
+                RBL_LOG("YMODEM: Start packet, size=");
+                char size_str[8];
+                uint32_t size = s_current_packet.data_size;
+                int idx = 0;
+                if (size == 0) {
+                    size_str[idx++] = '0';
+                } else {
+                    char temp[8];
+                    int temp_idx = 0;
+                    while (size > 0) {
+                        temp[temp_idx++] = '0' + (size % 10);
+                        size /= 10;
+                    }
+                    for (int i = temp_idx - 1; i >= 0; i--) {
+                        size_str[idx++] = temp[i];
+                    }
+                }
+                size_str[idx] = '\0';
+                RBL_LOG(size_str);
+                RBL_LOG("\r\n");
             } else if (byte == YMODEM_EOT) {
                 /* 传输结束 */
-                RBL_LOG("YMODEM: 传输完成\r\n");
+                RBL_LOG("YMODEM: Transfer completed\r\n");
                 rbl_ymodem_send_ack();
                 receiver->state = YMODEM_STATE_COMPLETED;
                 return false;
             } else if (byte == YMODEM_CAN) {
                 /* 取消传输 */
-                RBL_LOG("YMODEM: 传输被取消\r\n");
+                RBL_LOG("YMODEM: Transfer cancelled\r\n");
                 receiver->state = YMODEM_STATE_CANCELLED;
                 return false;
             }

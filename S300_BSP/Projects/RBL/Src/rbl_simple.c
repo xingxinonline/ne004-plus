@@ -27,10 +27,23 @@ void SystemInit(void)
 int main(void)
 {
     // 基本初始化
-    SCB->VTOR = 0x20000000;
+    // 注意：RBL运行在SRAM1，向量表也在SRAM1的开始位置
+    SCB->VTOR = 0x20000000;  // 向量表在SRAM1开始
     __DSB();
+    __ISB();  // 添加指令同步屏障
+    
+    // 先做最基本的延时测试，确保CPU工作正常
+    for (volatile int i = 0; i < 100000; i++) {
+        __NOP();
+    }
+    
     // 初始化UART
     rbl_uart_init();
+    
+    // 再做一次延时，确保UART初始化后稳定
+    for (volatile int i = 0; i < 100000; i++) {
+        __NOP();
+    }
     // 发送启动信息
     RBL_LOG("\r\n==== S300 RBL Minimal v1.0 ====\r\n");
     RBL_LOG("Hello from SRAM RBL!\r\n");

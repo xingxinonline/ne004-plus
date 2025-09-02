@@ -66,3 +66,112 @@ int rbl_qspi_read_jedec_id(uint8_t id[3])
     }
     return rc;
 }
+
+// === Phase 2 扩展: 基本读写擦除功能 ===
+
+int rbl_qspi_wait_ready(uint32_t timeout_ms)
+{
+    // 简化：固定超时循环，不依赖定时器
+    uint32_t loops = timeout_ms * 1000; // 粗略估算
+    for (uint32_t i = 0; i < loops; i++)
+    {
+        uint8_t sr1, sr2, sr3;
+        if (qspi_read_status(&sr1, &sr2, &sr3) == 0)
+        {
+            if ((sr1 & 0x01) == 0) // BUSY位为0表示就绪
+                return 0;
+        }
+        // 简单延时
+        for (volatile int j = 0; j < 100; j++) {}
+    }
+    return -1; // 超时
+}
+
+int rbl_qspi_read(uint32_t addr, uint8_t *data, uint32_t len)
+{
+    if (!data || len == 0) return -1;
+    return qspi_read(addr, data, len);
+}
+
+int rbl_qspi_page_program(uint32_t addr, const uint8_t *data, uint32_t len)
+{
+    if (!data || len == 0 || len > 256) return -1;
+    
+    // 等待Flash就绪
+    if (rbl_qspi_wait_ready(100) != 0) return -1;
+    
+    // 页编程
+    int rc = qspi_page_program(addr, data, len);
+    if (rc != 0) return rc;
+    
+    // 等待编程完成
+    return rbl_qspi_wait_ready(100);
+}
+
+int rbl_qspi_erase_4k(uint32_t addr)
+{
+    // 等待Flash就绪
+    if (rbl_qspi_wait_ready(100) != 0) return -1;
+    
+    // 4KB扇区擦除
+    int rc = qspi_erase_4k(addr);
+    if (rc != 0) return rc;
+    
+    // 等待擦除完成（擦除时间较长）
+    return rbl_qspi_wait_ready(5000); // 5秒超时
+}
+
+// === 便捷的一页读写校验功能 ===
+
+int rbl_qspi_test_page_rw(uint32_t test_addr)
+{
+    RBL_LOG("[RBL] Flash R/W test starting...\r\n");
+    
+    // 准备测试数据（256字节）
+    uint8_t write_data[256];
+    uint8_t read_data[256];
+    
+    // 生成测试模式
+    for (int i = 0; i < 256; i++)
+    {
+        write_data[i] = (uint8_t)(i ^ 0xA5 ^ (test_addr >> 8));
+    }
+    
+    // 1. 擦除4KB扇区
+    RBL_LOG("[RBL] Erasing 4KB sector...\r\n");
+    if (rbl_qspi_erase_4k(test_addr & ~0xFFF) != 0) // 对齐到4KB边界
+    {
+        RBL_LOG("[RBL] Erase failed!\r\n");
+        return -1;
+    }
+    
+    // 2. 写入一页数据
+    RBL_LOG("[RBL] Programming 256 bytes...\r\n");
+    if (rbl_qspi_page_program(test_addr, write_data, 256) != 0)
+    {
+        RBL_LOG("[RBL] Program failed!\r\n");
+        return -1;
+    }
+    
+    // 3. 读回数据
+    RBL_LOG("[RBL] Reading back 256 bytes...\r\n");
+    if (rbl_qspi_read(test_addr, read_data, 256) != 0)
+    {
+        RBL_LOG("[RBL] Read failed!\r\n");
+        return -1;
+    }
+    
+    // 4. 校验数据
+    RBL_LOG("[RBL] Verifying data...\r\n");
+    for (int i = 0; i < 256; i++)
+    {
+        if (write_data[i] != read_data[i])
+        {
+            RBL_LOG("[RBL] Verify failed!\r\n");
+            return -1;
+        }
+    }
+    
+    RBL_LOG("[RBL] Flash R/W test PASSED!\r\n");
+    return 0;
+}

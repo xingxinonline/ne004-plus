@@ -45,6 +45,13 @@ int main(void)
     uint8_t id[3] = {0};
     if (rbl_qspi_read_jedec_id(id) == 0) {
         RBL_LOG("[RBL] QSPI JEDEC read ok\r\n");
+        
+        // Phase 2 验收：一页读写校验测试
+        if (rbl_qspi_test_page_rw(0x10000) == 0) { // 使用64KB地址避免冲突
+            RBL_LOG("[RBL] Phase 2 validation PASSED!\r\n");
+        } else {
+            RBL_LOG("[RBL] Phase 2 validation FAILED!\r\n");
+        }
     } else {
         RBL_LOG("[RBL] QSPI JEDEC read failed\r\n");
     }

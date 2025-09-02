@@ -35,8 +35,13 @@ int main(void)
     RBL_LOG("Build: " __DATE__ " " __TIME__ "\r\n");
     RBL_LOG("================================\r\n\r\n");
 
-    // Phase 2: 初始化 QSPI 并读取 JEDEC ID
-    rbl_qspi_init(SystemCoreClock, SystemCoreClock / 4u);
+    // Phase 2: 初始化 QSPI 并读取 JEDEC ID (使用安全的低频率)
+    RBL_LOG("[RBL] Starting Phase 2: QSPI initialization...\r\n");
+    uint32_t ahb_clk = SystemCoreClock;  // 24MHz
+    uint32_t safe_freq = ahb_clk / 8;    // 3MHz - 很安全的频率
+    RBL_LOG("[RBL] About to call rbl_qspi_init()...\r\n");
+    rbl_qspi_init(ahb_clk, safe_freq);
+    RBL_LOG("[RBL] rbl_qspi_init() completed\r\n");
     uint8_t id[3] = {0};
     if (rbl_qspi_read_jedec_id(id) == 0) {
         RBL_LOG("[RBL] QSPI JEDEC read ok\r\n");

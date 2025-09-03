@@ -47,7 +47,65 @@ class S300SoftwareResetTool:
         if not self.serial_port or not self.serial_port.is_open:
             print("✗ 串口未连接")
             return ""
-            
+
+        try:
+            # 发送命令
+            cmd_bytes = (command + "\r\n").encode('utf-8')
+            self.serial_port.write(cmd_bytes)
+            print(f"→ 发送命令: {command}")
+
+            # 读取响应
+            response = ""
+            start_time = time.time()
+            while time.time() - start_time < 3.0:  # 3秒超时
+                if self.serial_port.in_waiting > 0:
+                    data = self.serial_port.read(self.serial_port.in_waiting)
+                    response += data.decode('utf-8', errors='ignore')
+                    if '\n' in response:
+                        break
+                time.sleep(0.1)
+            print(f"← 设备响应: {response.strip()}")
+            return response.strip()
+        except Exception as e:
+            print(f"✗ 串口通信失败: {e}")
+            return ""
+
+    def send_trigger_pattern(self, pattern: str = "spaces", duration: float = 1.0) -> bool:
+        """发送触发RBL下载窗口的串口模式
+        pattern: 'spaces' 发送连续空格; 'download' 发送"DOWNLOAD"; 'plus' 发送"+++"
+        duration: 模式持续时间（秒），仅对'spaces'有意义
+        """
+        if not self.serial_port or not self.serial_port.is_open:
+            print("✗ 串口未连接")
+            return False
+
+        try:
+            if pattern == "spaces":
+                end_time = time.time() + max(0.2, duration)
+                payload = b" " * 32  # 一次发送32个空格
+                while time.time() < end_time:
+                    self.serial_port.write(payload)
+                    self.serial_port.flush()
+                    time.sleep(0.02)
+                print("→ 已发送空格触发序列")
+                return True
+            elif pattern == "download":
+                self.serial_port.write(b"DOWNLOAD\r\n")
+                self.serial_port.flush()
+                print("→ 已发送DOWNLOAD触发")
+                return True
+            elif pattern == "plus":
+                self.serial_port.write(b"+++\r\n")
+                self.serial_port.flush()
+                print("→ 已发送+++触发")
+                return True
+            else:
+                print(f"✗ 未知pattern: {pattern}")
+                return False
+        except Exception as e:
+            print(f"✗ 发送触发失败: {e}")
+            return False
+
         try:
             # 发送命令
             command_bytes = f"{command}\r\n".encode('utf-8')
@@ -142,7 +200,7 @@ class S300SoftwareResetTool:
             if response.status_code == 200:
                 try:
                     return json.loads(response.text)
-                except:
+                except Exception:
                     return {"raw_response": response.text}
             else:
                 return {"error": f"HTTP {response.status_code}"}
@@ -301,6 +359,14 @@ def main():
     double_parser.add_argument('port', help='串口设备')
     double_parser.add_argument('--interval', type=float, default=1.0, 
                               help='两次复位间隔时间(秒)')
+
+    # 触发RBL窗口命令
+    trigger_parser = subparsers.add_parser('trigger', help='触发RBL下载窗口')
+    trigger_parser.add_argument('port', help='串口设备 (如: /dev/ttyUSB0)')
+    trigger_parser.add_argument(
+        '--pattern', choices=['spaces', 'download', 'plus'], default='spaces')
+    trigger_parser.add_argument(
+        '--duration', type=float, default=1.2, help='spaces持续时间(秒)')
     
     args = parser.parse_args()
     
@@ -365,6 +431,11 @@ def main():
             else:
                 print("✗ 双重启模拟失败")
                 return 1
+        elif args.command == 'trigger':
+            if tool.connect_serial(args.port):
+                ok = tool.send_trigger_pattern(args.pattern, args.duration)
+                tool.disconnect_serial()
+                return 0 if ok else 1
                 
     except KeyboardInterrupt:
         print("\n用户取消操作")

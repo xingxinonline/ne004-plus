@@ -19,6 +19,7 @@ dev = ["pytest>=7.0.0", "black>=22.0.0", "flake8>=4.0.0", "mypy>=0.950"]
 [project.scripts]
 s300-reset = "s300_reset_tool:main"
 s300-ota = "s300_ota_tool:main"
+s300-monitor = "serial_monitor:main"
 
 [project.urls]
 Homepage = "https://github.com/s300-bsp/reset-tool"

@@ -15,6 +15,80 @@
 // 系统时钟频率（启动默认24MHz，PLL后更新为目标频率）
 uint32_t SystemCoreClock = 24000000;
 
+/* 将字符转换为大写（仅ASCII字母） */
+static inline char rbl_upper_char(char c) {
+    if (c >= 'a' && c <= 'z') return (char)(c - 'a' + 'A');
+    return c;
+}
+
+/* 向缓冲追加一个字符（已转大写），维护滚动窗口 */
+static void rbl_rolling_append(char *buf, int *len, size_t cap, char c) {
+    if (!buf || !len || cap == 0) return;
+    c = rbl_upper_char(c);
+    if (*len < (int)cap - 1) {
+        buf[*len] = c;
+        (*len)++;
+    } else {
+        for (int i = 1; i < (int)cap - 1; ++i) {
+            buf[i - 1] = buf[i];
+        }
+        buf[(int)cap - 2] = c;
+    }
+    buf[*len] = '\0';
+}
+
+/* 简单子串匹配（buf中查找token，均为大写） */
+static int rbl_rolling_contains(const char *buf, int len, const char *token) {
+    if (!buf || !token || !*token || len <= 0) return 0;
+    for (int i = 0; i < len; ++i) {
+        int j = 0;
+        while (token[j] && (i + j) < len && buf[i + j] == token[j]) {
+            ++j;
+        }
+        if (!token[j]) return 1;
+    }
+    return 0;
+}
+
+/* 早期串口窗口检测 */
+static int rbl_check_serial_window_for_download(void)
+{
+    int space_streak = 0;
+    char rolling[64];
+    int rlen = 0;
+    rolling[0] = '\0';
+
+    RBL_LOG("[RBL] Serial window open (SPACE x8 or DOWNLOAD/+++ within ~1.5s)\r\n");
+    for (int iter = 0; iter < 15000; ++iter) {
+        uint8_t rx[32];
+        size_t got = rbl_hal_uart_receive(rx, sizeof(rx));
+        if (got > 0) {
+            for (size_t k = 0; k < got; ++k) {
+                char c = (char)rx[k];
+                if (c == ' ') {
+                    space_streak++;
+                    if (space_streak >= 8) {
+                        RBL_LOG("[RBL] Detected SPACE streak -> enter DOWNLOAD\r\n");
+                        return 1;
+                    }
+                } else if (c != '\r' && c != '\n') {
+                    space_streak = 0;
+                }
+
+                rbl_rolling_append(rolling, &rlen, sizeof(rolling), c);
+                if (rbl_rolling_contains(rolling, rlen, "DOWNLOAD") ||
+                    rbl_rolling_contains(rolling, rlen, "BOOT") ||
+                    rbl_rolling_contains(rolling, rlen, "+++")) {
+                    RBL_LOG("[RBL] Detected serial token -> enter DOWNLOAD\r\n");
+                    return 1;
+                }
+            }
+        }
+        rbl_delay_cycles(100);
+    }
+    return 0;
+}
+
 // 系统初始化函数 (startup.s需要的)
 void SystemInit(void)
 {
@@ -61,6 +135,11 @@ int main(void)
     RBL_LOG("Hello from SRAM RBL!\r\n");
     RBL_LOG("Build: " __DATE__ " " __TIME__ "\r\n");
     RBL_LOG("================================\r\n\r\n");
+
+    // 早期串口窗口检测（若触发则直接进入下载模式）
+    if (rbl_check_serial_window_for_download()) {
+        goto ENTER_DOWNLOAD_EARLY;
+    }
 
     // Phase 2: 初始化 QSPI 并读取 JEDEC ID (使用系统时钟的1/4作为SCLK)
     RBL_LOG("[RBL] Starting Phase 2: QSPI initialization...\r\n");
@@ -145,4 +224,37 @@ int main(void)
         rbl_delay_cycles(100);
     }
     return 0;
+
+ENTER_DOWNLOAD_EARLY:
+    {
+        // 确保进入下载前已初始化QSPI
+        RBL_LOG("[RBL] Prepare QSPI for download...\r\n");
+        uint32_t ahb_clk = SystemCoreClock;
+        uint32_t safe_freq = ahb_clk / 4;
+        rbl_qspi_init(ahb_clk, safe_freq);
+        (void)safe_freq; // 抑制未使用告警（不同编译器）
+
+        rbl_download_init();
+        if (rbl_download_start()) {
+            RBL_LOG("[RBL] Download mode started (early)\r\n");
+            download_state_t download_state;
+            do {
+                download_state = rbl_download_process();
+                rbl_delay_cycles(1000);
+            } while (download_state == DOWNLOAD_STATE_WAITING ||
+                     download_state == DOWNLOAD_STATE_RECEIVING);
+
+            if (download_state == DOWNLOAD_STATE_COMPLETED) {
+                RBL_LOG("[RBL] Download completed, restarting system...\r\n");
+                rbl_delay_cycles(1000000);
+                NVIC_SystemReset();
+            } else {
+                RBL_LOG("[RBL] Download failed or timeout\r\n");
+            }
+        } else {
+            RBL_LOG("[RBL] Failed to start download mode (early)\r\n");
+        }
+        // 失败则继续后续流程（理论上不会走到这里）
+    }
+    // 不返回
 }

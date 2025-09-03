@@ -126,9 +126,9 @@ uint16_t uart_read(uart_idx_t idx, uart_type_t type)
         U->DE_EN = 0u;
         U->RE_EN = 1u;
     }
+    /* Wait until RX FIFO not empty, then read from RBR (works for both FIFO/non-FIFO) */
     while (!(U->USR & 0x8u)) {}
-    if (U->IIR_FCR & 1u) return (uint16_t)U->SRBR_STHR[0];
-    else return (uint16_t)U->RBR_THR_DLL;
+    return (uint16_t)U->RBR_THR_DLL;
 }
 
 int uart_write(uart_idx_t idx, uart_type_t type, uint16_t data)
@@ -139,9 +139,9 @@ int uart_write(uart_idx_t idx, uart_type_t type, uint16_t data)
         U->RE_EN = 0u;
         U->DE_EN = 1u;
     }
+    /* Wait until TX FIFO empty (or choose TFNF for higher throughput), then write THR */
     while (!(U->USR & 0x4u)) {}
-    if (U->IIR_FCR & 1u) U->SRBR_STHR[0] = data;
-    else U->RBR_THR_DLL = data;
+    U->RBR_THR_DLL = data;
     (void)type;
     return 0;
 }

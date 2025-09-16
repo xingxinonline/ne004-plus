@@ -69,4 +69,5 @@ clean:
 .PHONY: all clean prep dbg
 
 dbg: all
-	$(MAKE) -C $(ROOT) dbg PROJECT=$(notdir $(PROJECT_DIR))
+	# 传递相对于 Projects/ 的路径，如 Demo/QSPI_W25Q128_Test
+	$(MAKE) -C $(ROOT) dbg PROJECT=$(patsubst $(ROOT)/Projects/%,%,$(abspath $(PROJECT_DIR)))

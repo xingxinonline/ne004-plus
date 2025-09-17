@@ -145,6 +145,133 @@ static void qspi_readdata_capture(unsigned delay)
     REG32(g_qspi.reg, CQSPI_REG_RD_DATA_CAPTURE) = v;
 }
 
+static inline int qspi_wait_stig_done(uint32_t timeout)
+{
+    for (uint32_t t = 0; t < timeout; ++t)
+    {
+        uint32_t r = REG32(g_qspi.reg, CQSPI_REG_CMDCTRL);
+        if ((r & CQSPI_CMDCTRL_INPROGRESS) == 0u) return 0;
+        if ((t % 1000u) == 999u) { for (volatile uint32_t i = 0; i < 10u; ++i) __NOP(); }
+    }
+    return -1;
+}
+
+int qspi_stig_read_ex(uint8_t opcode, uint32_t addr, unsigned addr_bytes,
+                      unsigned dummy_cycles, void *rx, uint32_t rx_len)
+{
+    if (!rx || rx_len == 0u) return -1;
+    if (addr_bytes > 4u) return -1;
+    if (qspi_wait_idle() != 0) return -1;
+
+    /* If need >8B, use STIG memory bank */
+    uint8_t *dst = (uint8_t *)rx;
+    uint32_t remain = rx_len;
+
+    if (remain <= 8u)
+    {
+        REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = addr;
+        uint32_t cmd = ((uint32_t)opcode << CQSPI_CMDCTRL_OPCODE_LSB) |
+                       ((addr_bytes ? 1u : 0u) << CQSPI_CMDCTRL_ADDR_EN_LSB) |
+                       (((addr_bytes ? addr_bytes : 0u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
+                       ((dummy_cycles & CQSPI_CMDCTRL_DUMMY_MASK) << CQSPI_CMDCTRL_DUMMY_LSB) |
+                       (1u << CQSPI_CMDCTRL_RD_EN_LSB) |
+                       ((((remain ? remain : 1u) - 1u) & CQSPI_CMDCTRL_RD_BYTES_MASK) << CQSPI_CMDCTRL_RD_BYTES_LSB);
+        int rc = qspi_exec_cmd(cmd);
+        if (rc) return rc;
+        uint32_t low = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATALOWER);
+        uint32_t take = (remain > 4u) ? 4u : remain;
+        memcpy(dst, &low, take);
+        if (remain > 4u)
+        {
+            uint32_t up = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATAUPPER);
+            memcpy(dst + 4u, &up, remain - 4u);
+        }
+        return 0;
+    }
+
+    /* Use Memory Bank */
+    REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = addr;
+    uint32_t cmd = ((uint32_t)opcode << CQSPI_CMDCTRL_OPCODE_LSB) |
+                   ((addr_bytes ? 1u : 0u) << CQSPI_CMDCTRL_ADDR_EN_LSB) |
+                   (((addr_bytes ? addr_bytes : 0u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
+                   ((dummy_cycles & CQSPI_CMDCTRL_DUMMY_MASK) << CQSPI_CMDCTRL_DUMMY_LSB) |
+                   (1u << CQSPI_CMDCTRL_RD_EN_LSB) |
+                   (1u << CQSPI_CMDCTRL_MEM_BANK_EN) |
+                   ((((8u - 1u)) & CQSPI_CMDCTRL_RD_BYTES_MASK) << CQSPI_CMDCTRL_RD_BYTES_LSB);
+    /* Trigger STIG with memory bank enabled */
+    REG32(g_qspi.reg, CQSPI_REG_CMDCTRL) = cmd;
+    REG32(g_qspi.reg, CQSPI_REG_CMDCTRL) = cmd | CQSPI_CMDCTRL_EXECUTE;
+    if (qspi_wait_stig_done(2000000u) != 0) return -1;
+
+    /* Read last 8 bytes directly */
+    uint32_t total = remain;
+    if (total >= 8u) {
+        uint32_t last8_off = total - 8u;
+        uint32_t low = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATALOWER);
+        uint32_t up  = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATAUPPER);
+        memcpy(dst + last8_off, &low, 4u);
+        memcpy(dst + last8_off + 4u, &up, 4u);
+    }
+
+    /* If need more than last 8 bytes, fetch from memory bank by index */
+    if (total > 8u)
+    {
+        uint32_t bank_max = CQSPI_STIG_MEM_BANK_MAX_BYTES;
+        uint32_t fetch = (total < bank_max) ? total : bank_max; /* 若超过深度将环回覆盖，按规范只能保证前bank_max字节 */
+        for (uint32_t i = 0; i < fetch; ++i)
+        {
+            uint32_t mem = 0u;
+            mem |= ((i & CQSPI_FLASH_CMD_MEM_ADDR_MASK) << CQSPI_FLASH_CMD_MEM_ADDR_LSB);
+            mem |= ((0u & CQSPI_FLASH_CMD_MEM_NUM_BYTES_MASK) << CQSPI_FLASH_CMD_MEM_NUM_BYTES_LSB); /* 单字节 */
+            REG32(g_qspi.reg, CQSPI_REG_FLASH_CMD_CTRL_MEM) = mem;
+            REG32(g_qspi.reg, CQSPI_REG_FLASH_CMD_CTRL_MEM) = mem | CQSPI_FLASH_CMD_MEM_TRIGGER;
+            /* 等待该字节就绪 */
+            for (uint32_t t = 0; t < 100000u; ++t)
+            {
+                uint32_t st = REG32(g_qspi.reg, CQSPI_REG_FLASH_CMD_CTRL_MEM);
+                if ((st & CQSPI_FLASH_CMD_MEM_IN_PROGRESS) == 0u)
+                {
+                    uint32_t bytev = (st >> CQSPI_FLASH_CMD_MEM_DATA_LSB) & CQSPI_FLASH_CMD_MEM_DATA_MASK;
+                    dst[i] = (uint8_t)bytev;
+                    break;
+                }
+                if ((t % 1000u) == 999u) { for (volatile uint32_t k = 0; k < 10u; ++k) __NOP(); }
+            }
+        }
+    }
+    return 0;
+}
+
+int qspi_stig_write_ex(uint8_t opcode, uint32_t addr, unsigned addr_bytes,
+                       unsigned dummy_cycles, const void *tx, uint32_t tx_len)
+{
+    if (tx_len > 8u) return -1; /* STIG写最多8字节 */
+    if (addr_bytes > 4u) return -1;
+    if (tx_len && !tx) return -1;
+    if (qspi_wait_idle() != 0) return -1;
+
+    uint32_t lower = 0u, upper = 0u;
+    if (tx_len)
+    {
+        memcpy(&lower, tx, (tx_len > 4u) ? 4u : tx_len);
+        if (tx_len > 4u)
+            memcpy(&upper, ((const uint8_t *)tx) + 4u, tx_len - 4u);
+    }
+    REG32(g_qspi.reg, CQSPI_REG_CMDWRITEDATALOWER) = lower;
+    REG32(g_qspi.reg, CQSPI_REG_CMDWRITEDATAUPPER) = upper;
+    REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = addr;
+
+    uint32_t cmd = ((uint32_t)opcode << CQSPI_CMDCTRL_OPCODE_LSB) |
+                   ((addr_bytes ? 1u : 0u) << CQSPI_CMDCTRL_ADDR_EN_LSB) |
+                   (((addr_bytes ? addr_bytes : 0u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
+                   ((dummy_cycles & CQSPI_CMDCTRL_DUMMY_MASK) << CQSPI_CMDCTRL_DUMMY_LSB) |
+                   ((tx_len ? 1u : 0u) << CQSPI_CMDCTRL_WR_EN_LSB) |
+                   ((((tx_len ? tx_len : 1u) - 1u) & CQSPI_CMDCTRL_WR_BYTES_MASK) << CQSPI_CMDCTRL_WR_BYTES_LSB);
+
+    int rc = qspi_exec_cmd(cmd);
+    return rc;
+}
+
 void qspi_cadence_init(uint32_t ref_clk_hz, uint32_t sclk_hz)
 {
     /* Enable RCC clocks for QSPI on APB0 and AHB */
@@ -170,7 +297,10 @@ void qspi_cadence_init(uint32_t ref_clk_hz, uint32_t sclk_hz)
     REG32(g_qspi.reg, CQSPI_REG_SIZE) = size;
     /* 设置 REMAP 为 AHB 窗口基址，使 CPU AHB 地址与控制器匹配 */
     REG32(g_qspi.reg, CQSPI_REG_REMAP) = (uint32_t)(uintptr_t)g_qspi.ahb;
-    REG32(g_qspi.reg, CQSPI_REG_SRAMPARTITION) = (g_qspi.fifo_depth / 2u);
+    /* Default: half of total locations for indirect read, half for write.
+       Avoid 0 and max per spec (only low 8 bits in fill-level readable). */
+    uint32_t default_read_reg = (1u << (CQSPI_SRAM_DEPTH_N - 1u)); /* 0x80 for N=8 */
+    REG32(g_qspi.reg, CQSPI_REG_SRAMPARTITION) = default_read_reg & CQSPI_SRAM_PARTITION_MASK;
     REG32(g_qspi.reg, CQSPI_REG_IRQMASK) = 0u;
     /* ensure we are not in XIP/direct mode left by bootrom */
     qspi_exit_xip();
@@ -850,4 +980,29 @@ int qspi_read_status(uint8_t *sr1, uint8_t *sr2, uint8_t *sr3)
         if (rc) return rc;
     }
     return 0;
+}
+
+int qspi_set_sram_partition(uint32_t read_locations)
+{
+    /* Per spec: program while controller is idle */
+    if (qspi_wait_idle() != 0) return -1;
+
+    uint32_t min_loc = 1u + 1u; /* avoid 0 -> means 1 location; we want at least 2 locations */
+    uint32_t max_loc = CQSPI_SRAM_TOTAL_LOCATIONS - 1u; /* avoid max (all read, 0 write) */
+    if (read_locations < min_loc) read_locations = min_loc;
+    if (read_locations > max_loc) read_locations = max_loc;
+
+    /* Program register: value is (read_locations - 1) according to spec */
+    uint32_t regv = (read_locations - 1u) & CQSPI_SRAM_PARTITION_MASK;
+    REG32(g_qspi.reg, CQSPI_REG_SRAMPARTITION) = regv;
+    return 0;
+}
+
+void qspi_get_sram_partition(uint32_t *read_locations, uint32_t *write_locations)
+{
+    uint32_t regv = REG32(g_qspi.reg, CQSPI_REG_SRAMPARTITION) & CQSPI_SRAM_PARTITION_MASK;
+    uint32_t read_loc = regv + 1u;
+    uint32_t write_loc = CQSPI_SRAM_TOTAL_LOCATIONS - regv;
+    if (read_locations) *read_locations = read_loc;
+    if (write_locations) *write_locations = write_loc;
 }

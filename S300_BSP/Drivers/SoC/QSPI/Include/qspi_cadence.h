@@ -111,7 +111,12 @@ extern "C" {
 /* SRAM Partition Configuration Register */
 #define CQSPI_REG_SRAMPARTITION          0x18u
 #define   CQSPI_SRAM_PARTITION_LSB       0u          /* Size of the indirect read partition in the SRAM */
-#define   CQSPI_SRAM_PARTITION_MASK      0xFFu       /* Default mask for N=8 (256 locations) */
+/* SRAM depth bits N: from integration; default N=8 (2**8 = 256 locations, 32-bit each) */
+#ifndef CQSPI_SRAM_DEPTH_N
+#define CQSPI_SRAM_DEPTH_N               8u
+#endif
+#define   CQSPI_SRAM_PARTITION_MASK      ((1u << CQSPI_SRAM_DEPTH_N) - 1u)
+#define   CQSPI_SRAM_TOTAL_LOCATIONS     (1u << CQSPI_SRAM_DEPTH_N)
 
 /* Indirect AHB Address Trigger Register */
 #define CQSPI_REG_INDIRECTTRIGGER        0x1Cu
@@ -305,6 +310,12 @@ extern "C" {
 #define   CQSPI_FLASH_CMD_MEM_ADDR_LSB   20u         /* Memory Bank Address */
 #define   CQSPI_FLASH_CMD_MEM_ADDR_MASK  0x1FFu
 
+/* STIG Memory Bank depth (compile-time integration param). Default pow2=4 => 16 bytes. */
+#ifndef CQSPI_STIG_MEM_BANK_DEPTH_POW2
+#define CQSPI_STIG_MEM_BANK_DEPTH_POW2   4u
+#endif
+#define CQSPI_STIG_MEM_BANK_MAX_BYTES    (1u << CQSPI_STIG_MEM_BANK_DEPTH_POW2)
+
 /* Flash Command Control Register (Using STIG) */
 #define CQSPI_REG_CMDCTRL                0x90u
 #define   CQSPI_CMDCTRL_EXECUTE          (1u << 0)   /* Execute the command */
@@ -463,6 +474,20 @@ int qspi_read_quad_stig(uint32_t addr, void *buf, uint32_t len);
 /* Debug helpers */
 void qspi_dump_regs(const char *tag);
 int qspi_read_status(uint8_t *sr1, uint8_t *sr2, uint8_t *sr3);
+
+/* SRAM partition helpers */
+/* Set indirect read partition size in units of locations (each 4 bytes).
+ * Valid range: 2 .. (CQSPI_SRAM_TOTAL_LOCATIONS - 1). Values will be clamped.
+ * Returns 0 on success, <0 on error (e.g., controller not idle timeout). */
+int qspi_set_sram_partition(uint32_t read_locations);
+/* Get current partition sizes (locations). Any pointer can be NULL. */
+void qspi_get_sram_partition(uint32_t *read_locations, uint32_t *write_locations);
+
+/* Generic STIG helpers (support <=8B direct or Memory Bank for 16..512B) */
+int qspi_stig_read_ex(uint8_t opcode, uint32_t addr, unsigned addr_bytes,
+                      unsigned dummy_cycles, void *rx, uint32_t rx_len);
+int qspi_stig_write_ex(uint8_t opcode, uint32_t addr, unsigned addr_bytes,
+                       unsigned dummy_cycles, const void *tx, uint32_t tx_len);
 
 #ifdef __cplusplus
 }

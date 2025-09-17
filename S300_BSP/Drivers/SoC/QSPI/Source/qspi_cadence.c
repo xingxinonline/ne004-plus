@@ -6,14 +6,6 @@
 
 #define REG32(base, off) (*(volatile uint32_t *)((uintptr_t)(base) + (off)))
 
-/* 控制是否使用控制器的间接模式。暂时禁用以调试问题。 */
-#ifndef QSPI_USE_INDIRECT_READ
-    #define QSPI_USE_INDIRECT_READ 0
-#endif
-#ifndef QSPI_USE_INDIRECT_WRITE
-    #define QSPI_USE_INDIRECT_WRITE 0
-#endif
-
 qspi_cadence_t g_qspi =
 {
     .reg = (volatile uint8_t *)QSPI_CFG_BASE,
@@ -179,11 +171,6 @@ void qspi_cadence_init(uint32_t ref_clk_hz, uint32_t sclk_hz)
     /* 设置 REMAP 为 AHB 窗口基址，使 CPU AHB 地址与控制器匹配 */
     REG32(g_qspi.reg, CQSPI_REG_REMAP) = (uint32_t)(uintptr_t)g_qspi.ahb;
     REG32(g_qspi.reg, CQSPI_REG_SRAMPARTITION) = (g_qspi.fifo_depth / 2u);
-    /* Configure indirect trigger address to AHB aperture base */
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTTRIGGER) = (uint32_t)(uintptr_t)g_qspi.ahb;
-    /* Configure optimized watermarks for better performance */
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDWATERMARK) = (g_qspi.fifo_depth / 4u);  /* 读：25% FIFO */
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRWATERMARK) = (g_qspi.fifo_depth / 8u);  /* 写：12.5% FIFO */
     REG32(g_qspi.reg, CQSPI_REG_IRQMASK) = 0u;
     /* ensure we are not in XIP/direct mode left by bootrom */
     qspi_exit_xip();
@@ -236,14 +223,9 @@ void qspi_cadence_init(uint32_t ref_clk_hz, uint32_t sclk_hz)
     uint32_t wr = (CQSPI_INST_TYPE_SINGLE << CQSPI_WR_TYPE_ADDR_LSB) |
                   (CQSPI_INST_TYPE_SINGLE << CQSPI_WR_TYPE_DATA_LSB);
     REG32(g_qspi.reg, CQSPI_REG_WR_INSTR) = wr;
-    /* Clear any stale indirect status */
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD) = CQSPI_INDIRECTRD_DONE;
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_DONE;
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDBYTES) = 0u;
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES) = 0u;
-    /* 间接模式下不使用 DIRECT，DIRECT 用于 XIP/DAC 模式 */
+    /* 只使用STIG模式，不使用 DIRECT */
     cfg = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
-    cfg &= ~CQSPI_CFG_DIRECT;  /* 确保间接模式下关闭 DIRECT */
+    cfg &= ~CQSPI_CFG_DIRECT;  /* 确保关闭 DIRECT 模式 */
     REG32(g_qspi.reg, CQSPI_REG_CONFIG) = cfg;
     qspi_enable(true);
 }
@@ -425,19 +407,6 @@ static int qspi_write_sr12(uint8_t sr1, uint8_t sr2)
     if (rc) return rc;
     return qspi_wait_ready(10u);
 }
-
-/* static int qspi_write_sr3(uint8_t sr3)
-{
-    int rc = qspi_wren();
-    if (rc) return rc;
-    REG32(g_qspi.reg, CQSPI_REG_CMDWRITEDATALOWER) = sr3;
-    uint32_t cmd = (W25Q_CMD_WRSR3 << CQSPI_CMDCTRL_OPCODE_LSB) |
-                   (1u << CQSPI_CMDCTRL_WR_EN_LSB) |
-                   (((1u - 1u) & CQSPI_CMDCTRL_WR_BYTES_MASK) << CQSPI_CMDCTRL_WR_BYTES_LSB);
-    rc = qspi_exec_cmd(cmd);
-    if (rc) return rc;
-    return qspi_wait_ready(10u);
-} */
 
 int qspi_unlock_all(void)
 {
@@ -755,548 +724,72 @@ int qspi_page_program(uint32_t addr, const void *buf, uint32_t len)
             }
         }
     }
-    /* 若禁用间接写，直接使用 STIG 小块写入 */
-    if (!QSPI_USE_INDIRECT_WRITE)
-    {
-        const uint8_t *p8 = (const uint8_t *)buf;
-        uint32_t off = 0;
-        while (off < len)
-        {
-            uint32_t chunk = len - off;
-            if (chunk > 8u) chunk = 8u;
-            rc = qspi_wren();
-            if (rc) return rc;
-            REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = (addr + off);
-            uint32_t lower = 0, upper = 0;
-            memcpy(&lower, p8 + off, (chunk > 4u) ? 4u : chunk);
-            if (chunk > 4u)
-            {
-                memcpy(&upper, p8 + off + 4u, chunk - 4u);
-            }
-            REG32(g_qspi.reg, CQSPI_REG_CMDWRITEDATALOWER) = lower;
-            REG32(g_qspi.reg, CQSPI_REG_CMDWRITEDATAUPPER) = upper;
-            uint32_t cmd = (W25Q_CMD_PP << CQSPI_CMDCTRL_OPCODE_LSB) |
-                           (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
-                           (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
-                           (1u << CQSPI_CMDCTRL_WR_EN_LSB) |
-                           (((chunk - 1u) & CQSPI_CMDCTRL_WR_BYTES_MASK) << CQSPI_CMDCTRL_WR_BYTES_LSB);
-            rc = qspi_exec_cmd(cmd);
-            if (rc) return rc;
-            rc = qspi_wait_ready(20u);
-            if (rc) return rc;
-            off += chunk;
-        }
-        return 0;
-    }
-    /* Indirect write setup (preferred) */
-    /* Program WR_INSTR fields already single-single; set start addr */
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRSTARTADDR) = addr;
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES) = len;
-    /* Configure write opcode */
-    uint32_t wr = REG32(g_qspi.reg, CQSPI_REG_WR_INSTR);
-    wr &= ~((0xFFu) << CQSPI_WR_OPCODE_LSB);
-    wr |= (W25Q_CMD_PP << CQSPI_WR_OPCODE_LSB);
-    REG32(g_qspi.reg, CQSPI_REG_WR_INSTR) = wr;
-    if (s_qspi_verbose)
-        printf("[QSPI] PP setup: WR_INSTR=%08lX STARTADDR=%06lX BYTES=%lu\n",
-               (unsigned long)wr, (unsigned long)addr, (unsigned long)len);
-    /* Clear DONE then trigger indirect write */
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_DONE;
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_START;
-    if (s_qspi_verbose)
-        printf("[QSPI] INDWR after START=%08lX SDRAM=%08lX\n",
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR),
-               (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL));
-    /* Small nudge */
-    for (volatile uint32_t d = 0; d < 200u; ++d) __NOP();
-    /* Write through AHB aperture (FIFO port at fixed base address) in chunks based on free space */
-    const uint8_t *p = (const uint8_t *)buf;
-    uint32_t remaining = len;
-    uint32_t guard = 0;
-    /* 将 flash addr 映射到 AHB 窗口，顺序写入该窗口以向 FIFO 推送数据 */
-    uintptr_t ahb_off = (addr & (g_qspi.ahb_size - 1u));
-    volatile uint8_t *ahb8 = (volatile uint8_t *)((uintptr_t)g_qspi.ahb + ahb_off);
-    volatile uint32_t *ahb32 = (volatile uint32_t *)((uintptr_t)g_qspi.ahb + ahb_off);
-    bool logged_first_push = false;
-    while (remaining)
-    {
-        uint32_t level_words = (REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL) >> CQSPI_SDRAMLEVEL_WR_LSB) & CQSPI_SDRAMLEVEL_WR_MASK;
-        if (level_words > g_qspi.fifo_depth) level_words = g_qspi.fifo_depth; /* sanity */
-        uint32_t free_words = g_qspi.fifo_depth - level_words;
-        if (free_words == 0u)
-        {
-            if (s_qspi_verbose)
-                if ((++guard % 50000u) == 0u)
-                {
-                    printf("[QSPI] waiting WR FIFO space... SDRAM=%08lX INDWR=%08lX WRBYTES=%08lX rem=%lu\n",
-                           (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL),
-                           (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR),
-                           (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES),
-                           (unsigned long)remaining);
-                }
-            if (guard > 1000000u)
-            {
-                printf("[QSPI] WR FIFO no space timeout (SDRAM=%08lX INDWR=%08lX WRBYTES=%08lX) remaining=%lu\n",
-                       (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL),
-                       (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR),
-                       (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES),
-                       (unsigned long)remaining);
-                break;
-            }
-            continue; /* wait for space */
-        }
-        guard = 0;
-        uint32_t free_bytes = free_words * g_qspi.fifo_width;
-        uint32_t chunk = (remaining < free_bytes) ? remaining : free_bytes;
-        /* Prefer 32-bit writes for better bus efficiency */
-        uint32_t words = chunk >> 2;
-        for (uint32_t i = 0; i < words; ++i)
-        {
-            uint32_t w;
-            memcpy(&w, p, sizeof w);
-            *ahb32++ = w; /* 顺序写入窗口地址 */
-            p += 4;
-        }
-        uint32_t tail = chunk & 3u;
-        for (uint32_t i = 0; i < tail; ++i)
-        {
-            *ahb8++ = *p++;
-        }
-    if (!logged_first_push && s_qspi_verbose)
-        {
-            logged_first_push = true;
-            uint32_t sdram = REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL);
-            printf("[QSPI] pushed first chunk, SDRAM=%08lX WRBYTES=%08lX\n",
-                   (unsigned long)sdram,
-                   (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES));
-        }
-        remaining -= chunk;
-    }
-    __DSB();
-    /* If we couldn't stage all data, cancel */
-    if (remaining != 0u)
-    {
-        REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_CANCEL;
-        printf("[QSPI] IndirectWR aborted, not all data staged (remain=%lu).\n", (unsigned long)remaining);
-        return -1;
-    }
-    /* Wait done or WRBYTES to drain to 0 */
-    bool done = false;
-    for (uint32_t t = 0; t < 1000000u; ++t)
-    {
-        uint32_t wrb = REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES);
-        if (wrb == 0u || (REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) & CQSPI_INDIRECTWR_DONE))
-        {
-            done = true;
-            break;
-        }
-    }
-    /* Clear done */
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_DONE;
-    if (!done)
-    {
-        /* Cancel and dump debug info */
-        REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_CANCEL;
-     if (s_qspi_verbose)
-     {
-         printf("[QSPI] IndirectWR timeout @0x%06lX len=%lu\n", (unsigned long)addr, (unsigned long)len);
-         printf("  CFG=%08lX RD_INSTR=%08lX WR_INSTR=%08lX SIZE=%08lX\n",
-             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_CONFIG),
-             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_RD_INSTR),
-             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_WR_INSTR),
-             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SIZE));
-         printf("  SDRAMLEVEL=%08lX IRQSTS=%08lX INDWR=%08lX INDWRBYTES=%08lX\n",
-             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL),
-             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_IRQSTATUS),
-             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR),
-             (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES));
-     }
-        uint8_t s1 = 0, s2 = 0, s3 = 0;
-        (void)qspi_read_status(&s1, &s2, &s3);
-        printf("  SR1=%02X SR2=%02X SR3=%02X\n", s1, s2, s3);
-        /* Fallback to STIG page program in <=8B chunks */
-        printf("[QSPI] Falling back to STIG PP in small chunks...\n");
-        const uint8_t *p8 = (const uint8_t *)buf;
-        uint32_t off = 0;
-        while (off < len)
-        {
-            uint32_t chunk = len - off;
-            if (chunk > 8u) chunk = 8u;
-            /* WREN before each PP */
-            rc = qspi_wren();
-            if (rc) return rc;
-            if (s_qspi_verbose)
-            {
-                uint8_t s1c = 0;
-                qspi_read_status(&s1c, NULL, NULL);
-                printf("[QSPI] STIG PP chunk off=%lu len=%lu WEL=%u\n", (unsigned long)off, (unsigned long)chunk, (unsigned)(!!(s1c & 0x02u)));
-            }
-            REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = (addr + off);
-            /* pack up to 8 bytes into write data regs */
-            uint32_t lower = 0, upper = 0;
-            memcpy(&lower, p8 + off, (chunk > 4u) ? 4u : chunk);
-            if (chunk > 4u)
-            {
-                memcpy(&upper, p8 + off + 4u, chunk - 4u);
-            }
-            REG32(g_qspi.reg, CQSPI_REG_CMDWRITEDATALOWER) = lower;
-            REG32(g_qspi.reg, CQSPI_REG_CMDWRITEDATAUPPER) = upper;
-            uint32_t cmd = (W25Q_CMD_PP << CQSPI_CMDCTRL_OPCODE_LSB) |
-                           (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
-                           (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
-                           (1u << CQSPI_CMDCTRL_WR_EN_LSB) |
-                           (((chunk - 1u) & CQSPI_CMDCTRL_WR_BYTES_MASK) << CQSPI_CMDCTRL_WR_BYTES_LSB);
-            rc = qspi_exec_cmd(cmd);
-            if (rc) return rc;
-            if (s_qspi_verbose)
-            {
-                uint8_t s1d = 0;
-                qspi_read_status(&s1d, NULL, NULL);
-                printf("[QSPI] STIG PP after exec SR1=%02X\n", s1d);
-            }
-            rc = qspi_wait_ready(20u);
-            if (rc) return rc;
-            off += chunk;
-        }
-        return 0;
-    }
-    return qspi_wait_ready(100u);
-}
-
-int qspi_page_program_quad(uint32_t addr, const void *buf, uint32_t len)
-{
-    if (!buf || len == 0u) return -1;
-    if (len > g_qspi.page_size) len = g_qspi.page_size;
     
-    /* 四线页编程需要使用间接写模式 */
-    int rc = qspi_wren();
-    if (rc) return rc;
-    
-    if (s_qspi_verbose)
-    {
-        uint8_t s1_dbg = 0;
-        (void)qspi_read_status(&s1_dbg, NULL, NULL);
-        printf("[QSPI] Quad PP: After WREN SR1=%02X (WEL=%u)\n", s1_dbg, (unsigned)(!!(s1_dbg & 0x02u)));
-    }
-    
-    /* 确保 WEL 已设置 */
-    {
-        uint8_t s1 = 0;
-        (void)qspi_read_status(&s1, NULL, NULL);
-        if ((s1 & 0x02u) == 0u)
-        {
-            rc = qspi_wren();
-            if (rc) return rc;
-            (void)qspi_read_status(&s1, NULL, NULL);
-            if (s_qspi_verbose)
-                printf("[QSPI] Quad PP: Retry WREN SR1=%02X (WEL=%u)\n", s1, (unsigned)(!!(s1 & 0x02u)));
-            if ((s1 & 0x02u) == 0u)
-            {
-                if (s_qspi_verbose)
-                    printf("[QSPI] Quad PP: WEL not set (SR1=%02X)\n", s1);
-                return -2;
-            }
-        }
-    }
-    
-    /* 配置写指令寄存器用于四线页编程 */
-    uint32_t write_setup = (W25Q_CMD_PP_QUAD << CQSPI_WR_OPCODE_LSB) |
-                          (CQSPI_INST_TYPE_SINGLE << CQSPI_WR_TYPE_ADDR_LSB) |  /* 地址仍使用单线 */
-                          (CQSPI_INST_TYPE_QUAD << CQSPI_WR_TYPE_DATA_LSB);     /* 数据使用四线 */
-    REG32(g_qspi.reg, CQSPI_REG_WR_INSTR) = write_setup;
-    
-    /* 确保之前的间接操作已完成 */
-    uint32_t prev_status = REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR);
-    if (prev_status & (CQSPI_INDIRECTWR_START | CQSPI_INDIRECTWR_CANCEL)) {
-        if (s_qspi_verbose)
-            printf("[QSPI] Quad PP: Previous indirect write still active, waiting...\n");
-        /* 等待之前的操作完成 */
-        for (uint32_t i = 0; i < 100000u; i++) {
-            prev_status = REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR);
-            if ((prev_status & (CQSPI_INDIRECTWR_START | CQSPI_INDIRECTWR_CANCEL)) == 0u)
-                break;
-            __NOP();
-        }
-        if (prev_status & (CQSPI_INDIRECTWR_START | CQSPI_INDIRECTWR_CANCEL)) {
-            if (s_qspi_verbose)
-                printf("[QSPI] Quad PP: Previous operation still active, aborting\n");
-            return -4;
-        }
-    }
-    
-    /* 清除任何之前的完成状态 */
-    if (prev_status & CQSPI_INDIRECTWR_DONE) {
-        REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_DONE;
-    }
-    
-    /* 配置间接写操作 */
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRSTARTADDR) = addr;
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES) = len;
-    
-    /* 启动间接写操作 */
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_START;
-    
-    /* 写入数据到AHB接口 */
+    /* 使用 STIG 模式小块写入 */
     const uint8_t *p8 = (const uint8_t *)buf;
-    uint32_t written = 0;
-    
-    while (written < len)
+    uint32_t off = 0;
+    while (off < len)
     {
-        /* 检查操作是否已完成 */
-        uint32_t status = REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR);
-        if (status & CQSPI_INDIRECTWR_DONE)
-            break;
-            
-        /* 一次写入4字节对齐的数据块 */
-        uint32_t chunk = len - written;
-        if (chunk >= 4u)
+        uint32_t chunk = len - off;
+        if (chunk > 8u) chunk = 8u;
+        rc = qspi_wren();
+        if (rc) return rc;
+        REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = (addr + off);
+        uint32_t lower = 0, upper = 0;
+        memcpy(&lower, p8 + off, (chunk > 4u) ? 4u : chunk);
+        if (chunk > 4u)
         {
-            /* 按4字节写入 */
-            uint32_t word;
-            memcpy(&word, p8 + written, 4u);
-            *((volatile uint32_t *)g_qspi.ahb) = word;
-            written += 4u;
+            memcpy(&upper, p8 + off + 4u, chunk - 4u);
         }
-        else
-        {
-            /* 剩余字节逐个写入 */
-            for (uint32_t i = 0; i < chunk; i++)
-            {
-                *((volatile uint8_t *)g_qspi.ahb) = p8[written + i];
-            }
-            written += chunk;
-        }
+        REG32(g_qspi.reg, CQSPI_REG_CMDWRITEDATALOWER) = lower;
+        REG32(g_qspi.reg, CQSPI_REG_CMDWRITEDATAUPPER) = upper;
+        uint32_t cmd = (W25Q_CMD_PP << CQSPI_CMDCTRL_OPCODE_LSB) |
+                       (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
+                       (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
+                       (1u << CQSPI_CMDCTRL_WR_EN_LSB) |
+                       (((chunk - 1u) & CQSPI_CMDCTRL_WR_BYTES_MASK) << CQSPI_CMDCTRL_WR_BYTES_LSB);
+        rc = qspi_exec_cmd(cmd);
+        if (rc) return rc;
+        rc = qspi_wait_ready(20u);
+        if (rc) return rc;
+        off += chunk;
     }
-    
-    /* 等待间接写操作完成 */
-    uint32_t timeout = 1000000u;  /* 增加超时时间 */
-    if (g_qspi.sclk_hz >= 80000000u) {
-        timeout = 2000000u;  /* 高频时更长的超时 */
-    }
-    
-    while (--timeout > 0u)
-    {
-        uint32_t status = REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR);
-        if (status & CQSPI_INDIRECTWR_DONE)
-            break;
-            
-        /* 每1000次循环检查一次，避免CPU过度占用 */
-        if ((timeout % 1000u) == 0u) {
-            /* 添加小延时让硬件有时间响应 */
-            for (volatile uint32_t i = 0; i < 10u; i++) __NOP();
-            
-            /* 检查是否有错误状态 */
-            uint32_t irq_status = REG32(g_qspi.reg, CQSPI_REG_IRQSTATUS);
-            if (irq_status != 0u) {
-                if (s_qspi_verbose)
-                    printf("[QSPI] Quad PP: IRQ status=0x%08lX during wait\n", (unsigned long)irq_status);
-                /* 清除中断状态 */
-                REG32(g_qspi.reg, CQSPI_REG_IRQSTATUS) = irq_status;
-            }
-        }
-    }
-    
-    if (timeout == 0u)
-    {
-        /* 超时处理：尝试取消操作 */
-        if (s_qspi_verbose)
-            printf("[QSPI] Quad PP: Timeout waiting for completion, attempting cancel\n");
-        REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_CANCEL;
-        
-        /* 等待取消完成 */
-        for (uint32_t i = 0; i < 10000u; i++) {
-            uint32_t status = REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR);
-            if ((status & (CQSPI_INDIRECTWR_START | CQSPI_INDIRECTWR_CANCEL)) == 0u)
-                break;
-            __NOP();
-        }
-        
-        return -3;
-    }
-    
-    /* 清除完成标志 */
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_DONE;
-    
-    /* 等待flash完成编程操作 */
-    rc = qspi_wait_ready(20u);
-    
-    if (s_qspi_verbose)
-        printf("[QSPI] Quad page program completed: %lu bytes @0x%06lX\n", 
-               (unsigned long)len, (unsigned long)addr);
-    
-    return rc;
+    return 0;
 }
 
 int qspi_read(uint32_t addr, void *buf, uint32_t len)
 {
     if (!buf || len == 0u) return -1;
-    if (!QSPI_USE_INDIRECT_READ)
+    
+    /* 使用 STIG FAST READ 0x0B 分块读取 */
+    uint8_t *pp = (uint8_t *)buf;
+    uint32_t a = addr;
+    uint32_t remain = len;
+    while (remain)
     {
-        /* STIG FAST READ 0x0B 分块读取，提升性能 */
-        uint8_t *pp = (uint8_t *)buf;
-        uint32_t a = addr;
-        uint32_t remain = len;
-        while (remain)
+        uint32_t chunk = (remain > 8u) ? 8u : remain;  /* 保持8字节以确保稳定性 */
+        REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = a;
+        uint32_t cmd = (W25Q_CMD_FAST << CQSPI_CMDCTRL_OPCODE_LSB) |
+                       (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
+                       (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
+                       (1u << CQSPI_CMDCTRL_RD_EN_LSB) |
+                       (((chunk - 1u) & CQSPI_CMDCTRL_RD_BYTES_MASK) << CQSPI_CMDCTRL_RD_BYTES_LSB) |
+                       (8u << CQSPI_CMDCTRL_DUMMY_LSB);  /* 8 dummy cycles for FAST READ */
+        int r = qspi_exec_cmd(cmd);
+        if (r) return r;
+        uint32_t low = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATALOWER);
+        uint32_t take = (chunk > 4u) ? 4u : chunk;
+        memcpy(pp, &low, take);
+        if (chunk > 4u)
         {
-            uint32_t chunk = (remain > 8u) ? 8u : remain;  /* 保持8字节以确保稳定性 */
-            REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = a;
-            uint32_t cmd = (W25Q_CMD_FAST << CQSPI_CMDCTRL_OPCODE_LSB) |
-                           (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
-                           (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
-                           (1u << CQSPI_CMDCTRL_RD_EN_LSB) |
-                           (((chunk - 1u) & CQSPI_CMDCTRL_RD_BYTES_MASK) << CQSPI_CMDCTRL_RD_BYTES_LSB) |
-                           (8u << CQSPI_CMDCTRL_DUMMY_LSB);  /* 8 dummy cycles for FAST READ */
-            int r = qspi_exec_cmd(cmd);
-            if (r) return r;
-            uint32_t low = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATALOWER);
-            uint32_t take = (chunk > 4u) ? 4u : chunk;
-            memcpy(pp, &low, take);
-            if (chunk > 4u)
-            {
-                uint32_t up = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATAUPPER);
-                memcpy(pp + 4u, &up, chunk - 4u);
-            }
-            pp += chunk;
-            a += chunk;
-            remain -= chunk;
+            uint32_t up = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATAUPPER);
+            memcpy(pp + 4u, &up, chunk - 4u);
         }
-        return 0;
+        pp += chunk;
+        a += chunk;
+        remain -= chunk;
     }
-    /* Setup READ opcode to FAST READ 0x0B with 8 dummy cycles (1 byte dummy) */
-    uint32_t rd = REG32(g_qspi.reg, CQSPI_REG_RD_INSTR);
-    rd &= ~((0xFFu) << CQSPI_RD_OPCODE_LSB);
-    rd |= (W25Q_CMD_FAST << CQSPI_RD_OPCODE_LSB);
-    rd &= ~(0x1Fu << CQSPI_RD_DUMMY_LSB);
-    rd |= (8u << CQSPI_RD_DUMMY_LSB); /* 8 cycles */
-    REG32(g_qspi.reg, CQSPI_REG_RD_INSTR) = rd;
-    /* Program address size 3 bytes */
-    uint32_t sz = REG32(g_qspi.reg, CQSPI_REG_SIZE);
-    sz &= ~CQSPI_SIZE_ADDR_MASK;
-    sz |= ((3u - 1u) & CQSPI_SIZE_ADDR_MASK) << CQSPI_SIZE_ADDR_LSB;
-    REG32(g_qspi.reg, CQSPI_REG_SIZE) = sz;
-    /* Clear DONE then indirect read execute */
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD) = CQSPI_INDIRECTRD_DONE;
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDSTARTADDR) = addr;
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDBYTES) = len;
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD) = CQSPI_INDIRECTRD_START;
-    uint8_t *p = (uint8_t *)buf;
-    uintptr_t ahb_off = (addr & (g_qspi.ahb_size - 1u));
-    volatile const uint8_t *ahb8 = (volatile const uint8_t *)((uintptr_t)g_qspi.ahb + ahb_off);
-    uint32_t remaining = len;
-    uint32_t guard = 0;
-    while (remaining)
-    {
-        uint32_t level = (REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL) >> CQSPI_SDRAMLEVEL_RD_LSB) & CQSPI_SDRAMLEVEL_RD_MASK;
-        if (level == 0u)
-        {
-            if (s_qspi_verbose)
-                if ((++guard % 500000u) == 0u)
-                {
-                    printf("[QSPI] waiting RD FIFO data... SDRAM=%08lX INDREAD=%08lX RDBYTES=%08lX rem=%lu\n",
-                           (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL),
-                           (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD),
-                           (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDBYTES),
-                           (unsigned long)remaining);
-                }
-            if (guard > 3000000u)
-            {
-                /* Fallback to STIG READ */
-                REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD) = CQSPI_INDIRECTRD_CANCEL;
-                printf("[QSPI] RD FIFO empty timeout, fallback STIG READ @0x%06lX len=%lu\n",
-                       (unsigned long)addr, (unsigned long)remaining);
-                uint8_t *pp = p;
-                uint32_t a = addr;
-                uint32_t remain = remaining;
-                while (remain)
-                {
-                    uint32_t chunk = (remain > 8u) ? 8u : remain;
-                    REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = a;
-                    uint32_t cmd = (W25Q_CMD_READ << CQSPI_CMDCTRL_OPCODE_LSB) |
-                                   (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
-                                   (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
-                                   (1u << CQSPI_CMDCTRL_RD_EN_LSB) |
-                                   (((chunk - 1u) & CQSPI_CMDCTRL_RD_BYTES_MASK) << CQSPI_CMDCTRL_RD_BYTES_LSB);
-                    int r = qspi_exec_cmd(cmd);
-                    if (r) return r;
-                    uint32_t low = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATALOWER);
-                    uint32_t take = (chunk > 4u) ? 4u : chunk;
-                    memcpy(pp, &low, take);
-                    if (chunk > 4u)
-                    {
-                        uint32_t up = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATAUPPER);
-                        memcpy(pp + 4u, &up, chunk - 4u);
-                    }
-                    pp += chunk;
-                    a += chunk;
-                    remain -= chunk;
-                }
-                return 0;
-            }
-            continue;
-        }
-        uint32_t chunk = level * g_qspi.fifo_width;
-        if (chunk > remaining) chunk = remaining;
-        for (uint32_t i = 0; i < chunk; ++i)
-        {
-            *p++ = *ahb8++;
-        }
-        remaining -= chunk;
-    }
-    /* Wait Done */
-    bool done = false;
-    for (uint32_t t = 0; t < 1000000u; ++t)
-    {
-        if (REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD) & CQSPI_INDIRECTRD_DONE)
-        {
-            done = true;
-            break;
-        }
-    }
-    /* Clear done */
-    REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD) = CQSPI_INDIRECTRD_DONE;
-    if (!done)
-    {
-        REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD) = CQSPI_INDIRECTRD_CANCEL;
-        if (s_qspi_verbose)
-        {
-            printf("[QSPI] IndirectRD timeout @0x%06lX len=%lu, fallback STIG READ\n", (unsigned long)addr, (unsigned long)len);
-            printf("  CFG=%08lX RD_INSTR=%08lX SIZE=%08lX SDRAMLEVEL=%08lX INDREAD=%08lX INDREADBYTES=%08lX\n",
-                   (unsigned long)REG32(g_qspi.reg, CQSPI_REG_CONFIG),
-                   (unsigned long)REG32(g_qspi.reg, CQSPI_REG_RD_INSTR),
-                   (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SIZE),
-                   (unsigned long)REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL),
-                   (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD),
-                   (unsigned long)REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDBYTES));
-        }
-        /* STIG fallback */
-        uint8_t *pp = (uint8_t *)buf;
-        uint32_t remain = len;
-        while (remain)
-        {
-            uint32_t chunk = (remain > 8u) ? 8u : remain;
-            REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = addr;
-            uint32_t cmd = (W25Q_CMD_READ << CQSPI_CMDCTRL_OPCODE_LSB) |
-                           (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
-                           (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
-                           (1u << CQSPI_CMDCTRL_RD_EN_LSB) |
-                           (((chunk - 1u) & CQSPI_CMDCTRL_RD_BYTES_MASK) << CQSPI_CMDCTRL_RD_BYTES_LSB);
-            int r = qspi_exec_cmd(cmd);
-            if (r) return r;
-            uint32_t low = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATALOWER);
-            uint32_t take = (chunk > 4u) ? 4u : chunk;
-            memcpy(pp, &low, take);
-            if (chunk > 4u)
-            {
-                uint32_t up = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATAUPPER);
-                memcpy(pp + 4u, &up, chunk - 4u);
-            }
-            pp += chunk;
-            addr += chunk;
-            remain -= chunk;
-        }
-        return 0;
-    }
-    return qspi_wait_idle();
+    return 0;
 }
 
 /* --- Debug helpers --- */
@@ -1327,10 +820,6 @@ void qspi_dump_regs(const char *tag)
     uint32_t modeb = REG32(g_qspi.reg, CQSPI_REG_MODE_BIT);
     uint32_t sdram = REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL);
     uint32_t irqst = REG32(g_qspi.reg, CQSPI_REG_IRQSTATUS);
-    uint32_t indrd = REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD);
-    uint32_t indrb = REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDBYTES);
-    uint32_t indwr = REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR);
-    uint32_t indwb = REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES);
     printf("[QSPI] dump %s\n", tag);
     printf("  CFG=%08lX SIZE=%08lX DELAY=%08lX RD_CAP=%08lX PART=%08lX\n",
            (unsigned long)cfg, (unsigned long)size, (unsigned long)delay,
@@ -1338,10 +827,8 @@ void qspi_dump_regs(const char *tag)
     printf("  RD_INSTR=%08lX WR_INSTR=%08lX REMAP=%08lX MODE=%08lX\n",
            (unsigned long)rdinstr, (unsigned long)wrinstr,
            (unsigned long)remap, (unsigned long)modeb);
-    printf("  SDRAM=%08lX IRQSTS=%08lX IND_RD=%08lX RDBYTES=%08lX IND_WR=%08lX WRBYTES=%08lX\n",
-           (unsigned long)sdram, (unsigned long)irqst,
-           (unsigned long)indrd, (unsigned long)indrb,
-           (unsigned long)indwr, (unsigned long)indwb);
+    printf("  SDRAM=%08lX IRQSTS=%08lX\n",
+           (unsigned long)sdram, (unsigned long)irqst);
 }
 
 int qspi_read_status(uint8_t *sr1, uint8_t *sr2, uint8_t *sr3)

@@ -136,7 +136,7 @@ int rbl_qspi_test_page_rw(uint32_t test_addr)
     RBL_LOG("[RBL] Flash R/W test starting...\r\n");
 
     // 防护：避免擦写落入受保护区间
-    if ((test_addr & ~0xFFFu) >= RBL_FLASH_PROTECT_START && (test_addr & ~0xFFFu) < RBL_FLASH_PROTECT_END)
+    if ((test_addr & ~0xFFFu) < RBL_FLASH_PROTECT_END)
     {
         RBL_LOG("[RBL] Test address 0x%08X in protected region, skip test.\r\n", test_addr);
         return 0; // 视为通过，避免破坏

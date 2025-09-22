@@ -58,11 +58,28 @@ S300_BSP/
 ### 环境要求
 
 - **工具链**: ARM GNU Toolchain (arm-none-eabi-gcc)
-- **构建工具**: GNU Make
+- **构建工具**: CMake + Ninja (推荐) 或 GNU Make
 - **调试器**: OpenOCD + ST-Link/J-Link
 - **操作系统**: Linux/Windows/macOS
 
 ### 构建示例
+
+#### CMake + Ninja (推荐)
+
+```bash
+# 配置构建系统
+mkdir build && cd build
+cmake -G Ninja ..
+
+# 构建所有项目
+ninja
+
+# 构建特定项目
+ninja s300_rbl_minimal
+ninja s300_sbl_minimal
+```
+
+#### GNU Make (传统方式)
 
 ```bash
 # 构建Hello World项目

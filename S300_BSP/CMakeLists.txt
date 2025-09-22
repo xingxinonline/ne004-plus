@@ -5,9 +5,17 @@ set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR arm)
 
 # Specify the cross compiler
-set(CMAKE_C_COMPILER /home/xinhao/crosstools/gcc-arm-none-eabi-10.3-2021.10/bin/arm-none-eabi-gcc)
-set(CMAKE_CXX_COMPILER /home/xinhao/crosstools/gcc-arm-none-eabi-10.3-2021.10/bin/arm-none-eabi-g++)
-set(CMAKE_ASM_COMPILER /home/xinhao/crosstools/gcc-arm-none-eabi-10.3-2021.10/bin/arm-none-eabi-gcc)
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
+    set(CMAKE_C_COMPILER D:/Scoop/apps/gcc-arm-none-eabi/current/bin/arm-none-eabi-gcc.exe)
+    set(CMAKE_CXX_COMPILER D:/Scoop/apps/gcc-arm-none-eabi/current/bin/arm-none-eabi-g++.exe)
+    set(CMAKE_ASM_COMPILER D:/Scoop/apps/gcc-arm-none-eabi/current/bin/arm-none-eabi-gcc.exe)
+elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+    set(CMAKE_C_COMPILER /home/xinhao/crosstools/gcc-arm-none-eabi-10.3-2021.10/bin/arm-none-eabi-gcc)
+    set(CMAKE_CXX_COMPILER /home/xinhao/crosstools/gcc-arm-none-eabi-10.3-2021.10/bin/arm-none-eabi-g++)
+    set(CMAKE_ASM_COMPILER /home/xinhao/crosstools/gcc-arm-none-eabi-10.3-2021.10/bin/arm-none-eabi-gcc)
+else()
+    message(FATAL_ERROR "Unsupported host system: ${CMAKE_HOST_SYSTEM_NAME}")
+endif()
 
 # Since it's bare-metal, don't try to link executables during compiler tests
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
@@ -30,6 +38,44 @@ set(CMAKE_EXE_LINKER_FLAGS "-nostartfiles -Wl,--gc-sections -specs=nosys.specs")
 add_subdirectory(CMSIS)
 add_subdirectory(Drivers)
 add_subdirectory(Projects)
+
+# Add debug target (equivalent to make dbg)
+# GDB port can be customized; default OpenOCD/J-Link is :3333
+set(GDB_PORT 3333 CACHE STRING "GDB server port")
+
+# Find all ELF files in the build directory
+file(GLOB_RECURSE ELF_FILES "${CMAKE_BINARY_DIR}/Projects/*" "*")
+
+# Filter for ELF executables (no extension)
+set(ELF_TARGETS "")
+
+foreach(elf_file ${ELF_FILES})
+    get_filename_component(elf_name ${elf_file} NAME)
+
+    if(NOT elf_name MATCHES "\\.")
+        list(APPEND ELF_TARGETS ${elf_file})
+    endif()
+endforeach()
+
+if(ELF_TARGETS)
+    # Get the most recently modified ELF file
+    list(GET ELF_TARGETS 0 LATEST_ELF)
+
+    foreach(elf_file ${ELF_TARGETS})
+        if(${elf_file} IS_NEWER_THAN ${LATEST_ELF})
+            set(LATEST_ELF ${elf_file})
+        endif()
+    endforeach()
+
+    get_filename_component(ELF_NAME ${LATEST_ELF} NAME)
+
+    add_custom_target(dbg
+        COMMENT "Launching GDB for ${ELF_NAME} (GDB_PORT=${GDB_PORT})"
+        COMMAND arm-none-eabi-gdb -q -ex "file ${LATEST_ELF}" -ex "target extended-remote :${GDB_PORT}" -x ${CMAKE_SOURCE_DIR}/gdbinit.common.gdb
+        DEPENDS ${LATEST_ELF}
+        USES_TERMINAL
+    )
+endif()
 
 # Set the default build type to Release if not specified
 if(NOT CMAKE_BUILD_TYPE)

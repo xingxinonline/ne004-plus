@@ -7,10 +7,8 @@
 
 #include "s300.h"
 
-// 系统时钟频率（RBL已启用PLL=192MHz，这里直接同步）
-uint32_t SystemCoreClock = 192000000u;
-
-// 关闭SysTick方案：不使用中断心跳，改为忙等待延时
+// SysTick计时器相关变量
+static volatile uint32_t systick_ms_counter = 0;
 
 // UART3寄存器定义
 // #define UART3_BASE   (0x40013000u)  // 已由头文件定义
@@ -28,12 +26,36 @@ uint32_t SystemCoreClock = 192000000u;
 #define IO_MATRIX_CFG1 (*(volatile uint32_t *)(IO_MATRIX_BASE + 0x04u))
 
 /**
- * @brief 系统初始化
+ * @brief SysTick中断处理函数
  */
-void SystemInit(void)
+void SysTick_Handler(void)
 {
-    // RBL已完成PLL与系统时钟配置，这里仅同步变量供本地延时和波特率计算使用
-    SystemCoreClock = 192000000u;  // 与RBL配置保持一致
+    systick_ms_counter++;
+}
+
+/**
+ * @brief SysTick初始化，配置为1ms中断周期
+ */
+static void systick_init(void)
+{
+    // 配置SysTick定时器，1ms中断一次
+    // SysTick使用处理器时钟，计算重载值：SystemCoreClock / 1000 - 1
+    uint32_t reload_value = (SystemCoreClock / 1000u) - 1u;
+    
+    // 配置SysTick
+    SysTick->LOAD = reload_value & SysTick_LOAD_RELOAD_Msk;  // 设置重载值
+    SysTick->VAL = 0u;                                       // 清除当前值
+    SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk |             // 使用处理器时钟
+                    SysTick_CTRL_TICKINT_Msk |               // 使能SysTick异常请求
+                    SysTick_CTRL_ENABLE_Msk;                 // 使能SysTick计数器
+}
+
+/**
+ * @brief 获取当前毫秒计数
+ */
+static uint32_t get_tick_ms(void)
+{
+    return systick_ms_counter;
 }
 
 /**
@@ -72,6 +94,18 @@ static void delay_cycles(uint32_t cycles)
     }
 }
 
+/**
+ * @brief 基于SysTick的精确毫秒延时
+ */
+static void delay_ms_systick(uint32_t ms)
+{
+    uint32_t start_tick = get_tick_ms();
+    while ((get_tick_ms() - start_tick) < ms)
+    {
+        __WFI();  // 等待中断，节省功耗
+    }
+}
+
 /* 不使用SysTick中断，改用忙等待延时 */
 
 /**
@@ -100,17 +134,18 @@ static void uart_init(void)
     *(volatile uint32_t *)(UART3_BASE + 0x04) = ((divisor >> 8) & 0xFFu); // DLH
     UART_LCR &= ~0x80u;     // DLAB=0
 }
-/* 近似毫秒级忙等待（粗略），无需定时器 */
+
+/* 旧的近似毫秒级忙等待（已废弃，使用SysTick精确延时）
 static void delay_ms(uint32_t ms) __attribute__((unused));
 static void delay_ms(uint32_t ms)
 {
-    /* 每ms近似循环次数，经验系数：假设单次循环 ~4 指令周期，这里使用/4000 近似 */
     uint32_t loops_per_ms = SystemCoreClock / 4000u;
     while (ms--)
     {
         delay_cycles(loops_per_ms);
     }
 }
+*/
 
 /**
  * @brief 输出十六进制数字
@@ -133,18 +168,29 @@ static void uart_send_hex(uint32_t value)
  */
 int main(void)
 {
-    // 基本初始化
-    // 注意：SBL运行在QSPI Flash XIP模式，向量表在Flash开始位置
-    SCB->VTOR = 0x80010000;  // 向量表在QSPI Flash SBL起始地址
-    __DSB();
-    __ISB();
-    // 延时确保系统稳定
-    delay_cycles(100000);
+    // 延时确保系统稳定（SystemInit已设置正确的VTOR）
+    delay_cycles(1000);
+    
     // 初始化UART
     uart_init();
+    
     // 延时确保UART初始化完成
-    delay_cycles(100000);
-    // 不启用SysTick，直接进入心跳打印
+    delay_cycles(1000);
+    
+    // 使能全局中断（确保SysTick中断能够触发）
+    __enable_irq();
+    
+    // 初始化SysTick定时器（必须在系统时钟配置完成后）
+    systick_init();
+    
+    // 测试SysTick中断是否工作
+    uint32_t test_start = get_tick_ms();
+    delay_ms_systick(100);  // 延时100ms测试
+    uint32_t test_end = get_tick_ms();
+    uart_send_string("SysTick Test: ");
+    uart_send_hex(test_end - test_start);
+    uart_send_string(" ms elapsed\r\n");
+    
     // 发送启动信息
     uart_send_string("\r\n");
     uart_send_string("========================================\r\n");
@@ -154,7 +200,7 @@ int main(void)
     uart_send_string("✅ RBL jump to SBL works!\r\n");
     uart_send_string("Build: " __DATE__ " " __TIME__ "\r\n");
     uart_send_string("Flash Address: ");
-    uart_send_hex(0x80010000);
+    uart_send_hex(0x08010000);
     uart_send_string("\r\n");
     uart_send_string("Vector Table: ");
     uart_send_hex(SCB->VTOR);
@@ -162,16 +208,30 @@ int main(void)
     uart_send_string("Stack Pointer: ");
     uart_send_hex(__get_MSP());
     uart_send_string("\r\n");
+    uart_send_string("System Clock: ");
+    uart_send_hex(SystemCoreClock);
+    uart_send_string(" Hz (");
+    // 以MHz为单位显示，更易读
+    uint32_t clock_mhz = SystemCoreClock / 1000000u;
+    uint32_t clock_remainder = (SystemCoreClock % 1000000u) / 1000u;
+    if (clock_mhz >= 100) uart_send_char('0' + (clock_mhz / 100) % 10);
+    if (clock_mhz >= 10)  uart_send_char('0' + (clock_mhz / 10) % 10);
+    uart_send_char('0' + (clock_mhz % 10));
+    uart_send_char('.');
+    uart_send_char('0' + (clock_remainder / 100) % 10);
+    uart_send_char('0' + (clock_remainder / 10) % 10);
+    uart_send_char('0' + (clock_remainder % 10));
+    uart_send_string(" MHz)\r\n");
     uart_send_string("========================================\r\n");
     uart_send_string("\r\n");
-    // 心跳逻辑：每约1秒打印一次（忙等待近似）
+    // 心跳逻辑：每1秒打印一次（使用精确的SysTick延时）
     uint32_t beat_cnt = 0;
     // 主循环
     while (1)
     {
-        delay_cycles(200000u);
+        delay_ms_systick(1000u);  // 精确1秒延时
         beat_cnt++;
-        uart_send_string("[SBL] ~1s heartbeat #");
+        uart_send_string("[SBL] 1s heartbeat #");
         // 打印十进制(最多3位)
         uint32_t n = beat_cnt % 1000u;
         if (n >= 100) uart_send_char('0' + (n / 100) % 10);

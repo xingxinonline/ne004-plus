@@ -57,6 +57,30 @@ foreach(elf_file ${ELF_FILES})
     endif()
 endforeach()
 
+# Create debug targets for each project
+foreach(elf_file ${ELF_TARGETS})
+    get_filename_component(elf_name ${elf_file} NAME)
+    get_filename_component(elf_dir ${elf_file} DIRECTORY)
+    get_filename_component(project_name ${elf_dir} NAME)
+
+    # Create project-specific debug target (e.g., dbg_rbl, dbg_sbl)
+    if(project_name STREQUAL "RBL_Minimal")
+        add_custom_target(dbg_rbl
+            COMMENT "Launching GDB for ${elf_name} (RBL) (GDB_PORT=${GDB_PORT})"
+            COMMAND arm-none-eabi-gdb -q -ex "file ${elf_file}" -ex "target extended-remote :${GDB_PORT}" -x ${CMAKE_SOURCE_DIR}/gdbinit.common.gdb
+            DEPENDS ${elf_file}
+            USES_TERMINAL
+        )
+    elseif(project_name STREQUAL "SBL_Minimal")
+        add_custom_target(dbg_sbl
+            COMMENT "Launching GDB for ${elf_name} (SBL) (GDB_PORT=${GDB_PORT})"
+            COMMAND arm-none-eabi-gdb -q -ex "file ${elf_file}" -ex "target extended-remote :${GDB_PORT}" -x ${CMAKE_SOURCE_DIR}/gdbinit.common.gdb
+            DEPENDS ${elf_file}
+            USES_TERMINAL
+        )
+    endif()
+endforeach()
+
 if(ELF_TARGETS)
     # Get the most recently modified ELF file
     list(GET ELF_TARGETS 0 LATEST_ELF)
@@ -69,8 +93,9 @@ if(ELF_TARGETS)
 
     get_filename_component(ELF_NAME ${LATEST_ELF} NAME)
 
+    # Create general debug target that uses the latest ELF
     add_custom_target(dbg
-        COMMENT "Launching GDB for ${ELF_NAME} (GDB_PORT=${GDB_PORT})"
+        COMMENT "Launching GDB for ${ELF_NAME} (latest) (GDB_PORT=${GDB_PORT})"
         COMMAND arm-none-eabi-gdb -q -ex "file ${LATEST_ELF}" -ex "target extended-remote :${GDB_PORT}" -x ${CMAKE_SOURCE_DIR}/gdbinit.common.gdb
         DEPENDS ${LATEST_ELF}
         USES_TERMINAL

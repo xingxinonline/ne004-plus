@@ -66,15 +66,21 @@ foreach(elf_file ${ELF_TARGETS})
     # Create project-specific debug target (e.g., dbg_rbl, dbg_sbl)
     if(project_name STREQUAL "RBL_Minimal")
         add_custom_target(dbg_rbl
-            COMMENT "Launching GDB for ${elf_name} (RBL) (GDB_PORT=${GDB_PORT})"
-            COMMAND arm-none-eabi-gdb -q -ex "file ${elf_file}" -ex "target extended-remote :${GDB_PORT}" -x ${CMAKE_SOURCE_DIR}/gdbinit.common.gdb
+            COMMENT "Launching GDB for ${elf_name} (RBL - SRAM: 0x20000000) (GDB_PORT=${GDB_PORT})"
+            COMMAND arm-none-eabi-gdb -q
+            -ex "file ${elf_file}"
+            -ex "target extended-remote :${GDB_PORT}"
+            -x ${CMAKE_SOURCE_DIR}/gdbinit.rbl.gdb
             DEPENDS ${elf_file}
             USES_TERMINAL
         )
     elseif(project_name STREQUAL "SBL_Minimal")
         add_custom_target(dbg_sbl
-            COMMENT "Launching GDB for ${elf_name} (SBL) (GDB_PORT=${GDB_PORT})"
-            COMMAND arm-none-eabi-gdb -q -ex "file ${elf_file}" -ex "target extended-remote :${GDB_PORT}" -x ${CMAKE_SOURCE_DIR}/gdbinit.common.gdb
+            COMMENT "Launching GDB for ${elf_name} (SBL - Flash: 0x08010000) (GDB_PORT=${GDB_PORT})"
+            COMMAND arm-none-eabi-gdb -q
+            -ex "file ${elf_file}"
+            -ex "target extended-remote :${GDB_PORT}"
+            -x ${CMAKE_SOURCE_DIR}/gdbinit.sbl.gdb
             DEPENDS ${elf_file}
             USES_TERMINAL
         )

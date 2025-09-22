@@ -19,11 +19,16 @@ include_directories(
     ${DEVICE_DIR}/Include
     ${ROOT}/CMSIS/Core/Include
     ${PROJECT_DIR}/Inc
+    ${ROOT}/Drivers/SoC/RCC/Include
 )
+
+# Compiler definitions
+add_definitions(-DSBL_BUILD=1)
 
 # Source files
 set(SRCS
     ${DEVICE_DIR}/Source/GCC/startup_S300.S
+    ${DEVICE_DIR}/Source/system_S300.c
     ${PROJECT_DIR}/Src/sbl_minimal.c
 )
 

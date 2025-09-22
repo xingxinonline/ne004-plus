@@ -22,6 +22,7 @@ static inline char rbl_upper_char(char c) {
 }
 
 /* 向缓冲追加一个字符（已转大写），维护滚动窗口 */
+static void rbl_rolling_append(char *buf, int *len, size_t cap, char c) __attribute__((unused));
 static void rbl_rolling_append(char *buf, int *len, size_t cap, char c) {
     if (!buf || !len || cap == 0) return;
     c = rbl_upper_char(c);
@@ -38,6 +39,7 @@ static void rbl_rolling_append(char *buf, int *len, size_t cap, char c) {
 }
 
 /* 简单子串匹配（buf中查找token，均为大写） */
+static int rbl_rolling_contains(const char *buf, int len, const char *token) __attribute__((unused));
 static int rbl_rolling_contains(const char *buf, int len, const char *token) {
     if (!buf || !token || !*token || len <= 0) return 0;
     for (int i = 0; i < len; ++i) {

@@ -13,7 +13,7 @@ uint32_t SystemCoreClock = 192000000u;
 // 关闭SysTick方案：不使用中断心跳，改为忙等待延时
 
 // UART3寄存器定义
-#define UART3_BASE   (0x40013000u)
+// #define UART3_BASE   (0x40013000u)  // 已由头文件定义
 #define UART_THR     (*(volatile uint32_t *)(UART3_BASE + 0x00))
 #define UART_LSR     (*(volatile uint32_t *)(UART3_BASE + 0x14))
 #define UART_LCR     (*(volatile uint32_t *)(UART3_BASE + 0x0C))
@@ -24,7 +24,7 @@ uint32_t SystemCoreClock = 192000000u;
 // 时钟和IO配置寄存器
 #define APB1_BASE      (0x4000A000u)
 #define APB1_CLK_EN    (*(volatile uint32_t *)(APB1_BASE + 0x000Cu))
-#define IO_MATRIX_BASE (0x40008000u)
+// #define IO_MATRIX_BASE (0x40008000u)  // 已由头文件定义
 #define IO_MATRIX_CFG1 (*(volatile uint32_t *)(IO_MATRIX_BASE + 0x04u))
 
 /**
@@ -101,6 +101,7 @@ static void uart_init(void)
     UART_LCR &= ~0x80u;     // DLAB=0
 }
 /* 近似毫秒级忙等待（粗略），无需定时器 */
+static void delay_ms(uint32_t ms) __attribute__((unused));
 static void delay_ms(uint32_t ms)
 {
     /* 每ms近似循环次数，经验系数：假设单次循环 ~4 指令周期，这里使用/4000 近似 */

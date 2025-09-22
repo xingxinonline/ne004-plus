@@ -40,6 +40,12 @@ void SystemInit(void)
     __DSB();
     __ISB();
 #endif
-    /* Set vector table base to start of SRAM1 where .isr_vector is linked by sram.ld */
+    /* Set vector table base address */
+#if defined(SBL_BUILD) && (SBL_BUILD == 1)
+    /* SBL runs from Flash, set VTOR to Flash base + SBL offset */
+    SCB->VTOR = (uint32_t)0x08010000U;
+#else
+    /* RBL runs from SRAM, set VTOR to SRAM base where .isr_vector is linked by sram.ld */
     SCB->VTOR = (uint32_t)0x20000000U;
+#endif
 }

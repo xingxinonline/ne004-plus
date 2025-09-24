@@ -241,14 +241,14 @@ int rbl_configure_xip_mode(void)
     // 参考Demo代码的XIP配置方法
     RBL_LOG("[RBL] Configuring QSPI for XIP mode...\r\n");
     
-    // 1. 配置Quad读取模式(1-1-4)，与Demo保持一致
-    qspi_configure_quad_read(true);
+    // 1. 配置Quad读取模式(1-4-4)，与Demo保持一致
+    qspi_configure_quad_io_read(true, true);
     
     // 2. 启用直接访问模式 (XIP)
     extern qspi_cadence_t g_qspi;  // 从qspi_cadence.c中引用
     volatile uint32_t *reg_base = (volatile uint32_t *)g_qspi.reg;
     uint32_t cfg = reg_base[CQSPI_REG_CONFIG / 4];
-    cfg |= CQSPI_CFG_DIRECT;
+    cfg |= (CQSPI_CFG_DIRECT | CQSPI_CFG_XIP_NEXT);
     reg_base[CQSPI_REG_CONFIG / 4] = cfg;
     
     // 数据同步屏障

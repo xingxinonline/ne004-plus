@@ -27,7 +27,7 @@ int w25qxx_init(w25qxx_info_t *info, bool want_quad, bool want_4byte_addr)
         /* 如果成功启用QE，则配置控制器使用Quad读模式 */
         if (info->quad_enabled)
         {
-            qspi_configure_quad_read(true);
+            qspi_configure_quad_io_read(true, false);
         }
     }
     /* 4-byte addressing if size > 16MiB or forced */
@@ -116,7 +116,7 @@ int w25qxx_configure_read_mode(int mode)
         qspi_configure_quad_read(true);
         return 0;
     case 2: /* 四线 I/O 模式 (EBh) */
-        qspi_configure_quad_io_read(true);
+        qspi_configure_quad_io_read(true, false);
         return 0;
     default:
         return -1; /* 不支持的模式 */

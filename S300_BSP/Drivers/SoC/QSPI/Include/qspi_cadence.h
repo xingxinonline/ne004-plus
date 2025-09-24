@@ -464,11 +464,46 @@ int qspi_reset_enable(void);
 int qspi_reset_device(void);
 int qspi_software_reset(void);
 int qspi_wait_ready(uint32_t timeout_ms);
+
+/* INDAC (Indirect Access) read APIs - non-DMA */
+/* 通用INDAC读取：调用方可指定opcode/总线宽度/地址字节/dummy个数。
+ * 参数instr_type/addr_type/data_type取值：CQSPI_INST_TYPE_SINGLE/DUAL/QUAD
+ * addr_bytes典型为3或4。
+ */
+int qspi_indac_read_ex(uint32_t flash_addr,
+                       void *buf,
+                       uint32_t len,
+                       uint8_t opcode,
+                       unsigned instr_type,
+                       unsigned addr_type,
+                       unsigned data_type,
+                       unsigned addr_bytes,
+                       unsigned dummy_cycles);
+
+/* 便捷封装：使用0x0B FAST READ (1-1-1, 8 dummy, 3B地址) */
+int qspi_indac_read_fast(uint32_t flash_addr, void *buf, uint32_t len);
+
+/* INDAC (Indirect) write APIs - non-DMA */
+/* 通用INDAC写入：调用方可指定opcode/总线宽度/地址字节/dummy个数。
+ * 注意：对于Page Program(0x02)，通常len不应跨页；调用者负责拆分或使用小于等于page size的长度。
+ */
+int qspi_indac_write_ex(uint32_t flash_addr,
+                        const void *buf,
+                        uint32_t len,
+                        uint8_t opcode,
+                        unsigned instr_type,
+                        unsigned addr_type,
+                        unsigned data_type,
+                        unsigned addr_bytes,
+                        unsigned dummy_cycles);
+
+/* 便捷封装：使用0x02 Page Program (1-1-1, 0 dummy, 3B地址) */
+int qspi_indac_write_pp(uint32_t flash_addr, const void *buf, uint32_t len);
 /* Feature helpers */
 int qspi_set_quad_enable(bool enable);
 int qspi_set_address_mode_4byte(bool enable);
 void qspi_configure_quad_read(bool enable);
-void qspi_configure_quad_io_read(bool enable);
+void qspi_configure_quad_io_read(bool enable, bool is_xip);
 int qspi_read_quad_stig(uint32_t addr, void *buf, uint32_t len);
 
 /* Debug helpers */

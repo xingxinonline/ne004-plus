@@ -296,7 +296,7 @@ void qspi_cadence_init(uint32_t ref_clk_hz, uint32_t sclk_hz)
     size |= (g_qspi.block_4k_units << CQSPI_SIZE_BLOCK_LSB);
     REG32(g_qspi.reg, CQSPI_REG_SIZE) = size;
     /* 设置 REMAP 为 AHB 窗口基址，使 CPU AHB 地址与控制器匹配 */
-    REG32(g_qspi.reg, CQSPI_REG_REMAP) = (uint32_t)(uintptr_t)g_qspi.ahb;
+    REG32(g_qspi.reg, CQSPI_REG_REMAP) = (uint32_t)(uintptr_t)0;
     /* Default: half of total locations for indirect read, half for write.
        Avoid 0 and max per spec (only low 8 bits in fill-level readable). */
     uint32_t default_read_reg = (1u << (CQSPI_SRAM_DEPTH_N - 1u)); /* 0x80 for N=8 */
@@ -724,7 +724,7 @@ void qspi_configure_quad_read(bool enable)
     REG32(g_qspi.reg, CQSPI_REG_RD_INSTR) = rd;
 }
 
-void qspi_configure_quad_io_read(bool enable)
+void qspi_configure_quad_io_read(bool enable, bool is_xip)
 {
     uint32_t rd = REG32(g_qspi.reg, CQSPI_REG_RD_INSTR);
     
@@ -744,12 +744,22 @@ void qspi_configure_quad_io_read(bool enable)
         rd &= ~((0xFu) << CQSPI_RD_TYPE_DATA_LSB);
         rd |= (CQSPI_INST_TYPE_QUAD << CQSPI_RD_TYPE_DATA_LSB);
         
-        /* 启用 Mode bits */
-        rd |= (1u << CQSPI_RD_MODE_EN_LSB);
+        /* 只有在XIP模式下才启用Mode bits */
+        if (is_xip)
+        {
+            rd |= (1u << CQSPI_RD_MODE_EN_LSB);
+            /* 设置 Mode bits 值为 0x20 (W25Q128 Quad I/O XIP标准) */
+            REG32(g_qspi.reg, CQSPI_REG_MODE_BIT) = 0x20u;
+        }
+        else
+        {
+            rd &= ~(1u << CQSPI_RD_MODE_EN_LSB);
+            REG32(g_qspi.reg, CQSPI_REG_MODE_BIT) = 0x00u;
+        }
         
         /* 设置dummy cycles（0xEB命令通常需要6个dummy cycles） */
         rd &= ~(0x1Fu << CQSPI_RD_DUMMY_LSB);
-        rd |= (6u << CQSPI_RD_DUMMY_LSB);
+        rd |= (4u << CQSPI_RD_DUMMY_LSB);
         
         if (s_qspi_verbose)
             printf("[QSPI] Configured Fast Read Quad I/O (0xEB, 1-4-4 mode)\n");
@@ -772,6 +782,9 @@ void qspi_configure_quad_io_read(bool enable)
         
         /* 禁用 Mode bits */
         rd &= ~(1u << CQSPI_RD_MODE_EN_LSB);
+        
+        /* 清除 Mode bits 值 */
+        REG32(g_qspi.reg, CQSPI_REG_MODE_BIT) = 0x00u;
         
         /* 设置dummy cycles（0x0B命令需要8个dummy cycles） */
         rd &= ~(0x1Fu << CQSPI_RD_DUMMY_LSB);
@@ -1005,4 +1018,285 @@ void qspi_get_sram_partition(uint32_t *read_locations, uint32_t *write_locations
     uint32_t write_loc = CQSPI_SRAM_TOTAL_LOCATIONS - regv;
     if (read_locations) *read_locations = read_loc;
     if (write_locations) *write_locations = write_loc;
+}
+
+/* ---------------- INDAC (Indirect) Read: non-DMA implementation ---------------- */
+
+static inline uint32_t qspi_sdramlevel_read_bytes(void)
+{
+    /* SDRAMLEVEL RD: unit is 32-bit locations; convert to bytes */
+    uint32_t level = REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL);
+    uint32_t loc = (level >> CQSPI_SDRAMLEVEL_RD_LSB) & CQSPI_SDRAMLEVEL_RD_MASK;
+    return loc * 4u;
+}
+
+static void qspi_ahb_read_volatile(uint8_t *dst, uint32_t bytes)
+{
+    volatile const uint32_t *src = (volatile const uint32_t *)g_qspi.ahb;
+    uint32_t chunk = bytes / 4u;
+    for (uint32_t i = 0; i < chunk; ++i)
+    {
+        /* Read from the same AHB base; controller advances FIFO */
+        uint32_t temp = src[0];
+        printf("qspi_ahb_read_volatile data %08X ,\n", temp);
+        memcpy(&dst[i * 4u], &temp, 4u);
+        uint32_t sramlevel = qspi_sdramlevel_read_bytes();
+        printf("qspi_sdramlevel_read_bytes data %d ,\n", sramlevel);
+        // dst[i] = src[0];
+    }
+}
+
+/* Configure read instruction widths/opcode and dummy cycles in RD_INSTR. */
+static void qspi_program_read_instr(uint8_t opcode,
+                                    unsigned instr_type,
+                                    unsigned addr_type,
+                                    unsigned data_type,
+                                    unsigned dummy_cycles)
+{
+    uint32_t rd = REG32(g_qspi.reg, CQSPI_REG_RD_INSTR);
+    rd &= ~((uint32_t)CQSPI_RD_OPCODE_MASK << CQSPI_RD_OPCODE_LSB);
+    rd |= ((uint32_t)opcode << CQSPI_RD_OPCODE_LSB);
+
+    rd &= ~((uint32_t)CQSPI_RD_TYPE_INSTR_MASK << CQSPI_RD_TYPE_INSTR_LSB);
+    rd |= ((uint32_t)(instr_type & CQSPI_RD_TYPE_INSTR_MASK) << CQSPI_RD_TYPE_INSTR_LSB);
+
+    rd &= ~((uint32_t)CQSPI_RD_TYPE_ADDR_MASK << CQSPI_RD_TYPE_ADDR_LSB);
+    rd |= ((uint32_t)(addr_type & CQSPI_RD_TYPE_ADDR_MASK) << CQSPI_RD_TYPE_ADDR_LSB);
+
+    rd &= ~((uint32_t)CQSPI_RD_TYPE_DATA_MASK << CQSPI_RD_TYPE_DATA_LSB);
+    rd |= ((uint32_t)(data_type & CQSPI_RD_TYPE_DATA_MASK) << CQSPI_RD_TYPE_DATA_LSB);
+
+    rd &= ~((uint32_t)CQSPI_RD_DUMMY_MASK << CQSPI_RD_DUMMY_LSB);
+    rd |= ((uint32_t)(dummy_cycles & CQSPI_RD_DUMMY_MASK) << CQSPI_RD_DUMMY_LSB);
+
+    /* Ensure mode bit disabled for plain indirect read */
+    rd &= ~(1u << CQSPI_RD_MODE_EN_LSB);
+    REG32(g_qspi.reg, CQSPI_REG_RD_INSTR) = rd;
+}
+
+/* addr_bytes in 1..4, typically 3 or 4. */
+static void qspi_program_addr_len(unsigned addr_bytes)
+{
+    if (addr_bytes < 1u) addr_bytes = 1u;
+    if (addr_bytes > 4u) addr_bytes = 4u;
+    uint32_t size = REG32(g_qspi.reg, CQSPI_REG_SIZE);
+    size &= ~((uint32_t)CQSPI_SIZE_ADDR_MASK << CQSPI_SIZE_ADDR_LSB);
+    size |= ((uint32_t)(addr_bytes & CQSPI_SIZE_ADDR_MASK) << CQSPI_SIZE_ADDR_LSB);
+    REG32(g_qspi.reg, CQSPI_REG_SIZE) = size;
+}
+
+int qspi_indac_read_ex(uint32_t flash_addr,
+                       void *buf,
+                       uint32_t len,
+                       uint8_t opcode,
+                       unsigned instr_type,
+                       unsigned addr_type,
+                       unsigned data_type,
+                       unsigned addr_bytes,
+                       unsigned dummy_cycles)
+{
+    if (!buf || len == 0u) return -1;
+
+    /* step1: program base address for INDAC window (AHB base)
+       Many integrations use the start of AHB window as trigger base. */
+    REG32(g_qspi.reg, CQSPI_REG_INDIRECTTRIGGER) = (uint32_t)(uintptr_t)g_qspi.ahb;
+
+    /* step2: flash start address inside device */
+    REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDSTARTADDR) = flash_addr;
+
+    /* step3: opcode + bus widths in RD_INSTR, step4: address length */
+    // qspi_program_read_instr(opcode, instr_type, addr_type, data_type, dummy_cycles);
+    // qspi_program_addr_len(addr_bytes);
+
+    /* step5: total number of bytes to read */
+    REG32(g_qspi.reg, CQSPI_REG_INDIRECTRDBYTES) = len;
+
+    /* step6: trigger indirect read */
+    REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD) = CQSPI_INDIRECTRD_START;
+
+    /* step7/8: poll SDRAMLEVEL and drain data from AHB aperture */
+    uint8_t *dst = (uint8_t *)buf;
+    uint32_t remaining = len;
+    uint32_t last_avail = 0u;
+    uint32_t guard = 0u;
+    printf("remaining %d\n", remaining);
+    while (remaining)
+    {
+        uint32_t avail = qspi_sdramlevel_read_bytes();
+        if (avail)
+        {
+            /* Only copy up to remaining; data resides at AHB base */
+            uint32_t take = (avail > remaining) ? remaining : avail;
+            printf("avail %d, take %d\n", avail, take);
+            qspi_ahb_read_volatile(dst, take);
+            dst += take;
+            remaining -= take;
+        }
+        else
+        {
+            /* simple spin-wait with small NOPs to avoid bus hammering */
+            for (volatile uint32_t i = 0; i < 50u; ++i) __NOP();
+        }
+
+        /* Prevent infinite loops in abnormal cases */
+        if (avail == last_avail) {
+            if (++guard > 10000000u) {
+                if (s_qspi_verbose) printf("[QSPI] INDAC read guard timeout (remain=%lu)\n", (unsigned long)remaining);
+                break;
+            }
+        } else {
+            guard = 0u;
+            last_avail = avail;
+        }
+    }
+
+    /* step9: read status to confirm completion */
+    uint32_t rdctl = REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD);
+    if ((rdctl & CQSPI_INDIRECTRD_DONE) == 0u)
+    {
+        /* wait a little and re-check */
+        for (volatile uint32_t i = 0; i < 1000u; ++i) __NOP();
+        rdctl = REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD);
+    }
+
+     /* step10: clear completion status by writing 1 to DONE bit (W1C) */
+     REG32(g_qspi.reg, CQSPI_REG_INDIRECTRD) = CQSPI_INDIRECTRD_DONE;
+
+    return remaining ? -1 : 0;
+}
+
+int qspi_indac_read_fast(uint32_t flash_addr, void *buf, uint32_t len)
+{
+    /* Fast Read 0x0B, 1-1-1, 8 dummy, 3-byte address by default */
+    return qspi_indac_read_ex(flash_addr, buf, len,
+                              W25Q_CMD_FAST,
+                              CQSPI_INST_TYPE_SINGLE,
+                              CQSPI_INST_TYPE_SINGLE,
+                              CQSPI_INST_TYPE_SINGLE,
+                              3u,
+                              8u);
+}
+
+/* ---------------- INDAC (Indirect) Write: non-DMA implementation ---------------- */
+
+static void qspi_program_write_instr(uint8_t opcode,
+                                     unsigned addr_type,
+                                     unsigned data_type,
+                                     unsigned dummy_cycles)
+{
+    uint32_t wr = REG32(g_qspi.reg, CQSPI_REG_WR_INSTR);
+    wr &= ~((uint32_t)CQSPI_WR_OPCODE_MASK << CQSPI_WR_OPCODE_LSB);
+    wr |= ((uint32_t)opcode << CQSPI_WR_OPCODE_LSB);
+
+    wr &= ~((uint32_t)CQSPI_WR_TYPE_ADDR_MASK << CQSPI_WR_TYPE_ADDR_LSB);
+    wr |= ((uint32_t)(addr_type & CQSPI_WR_TYPE_ADDR_MASK) << CQSPI_WR_TYPE_ADDR_LSB);
+
+    wr &= ~((uint32_t)CQSPI_WR_TYPE_DATA_MASK << CQSPI_WR_TYPE_DATA_LSB);
+    wr |= ((uint32_t)(data_type & CQSPI_WR_TYPE_DATA_MASK) << CQSPI_WR_TYPE_DATA_LSB);
+
+    wr &= ~((uint32_t)CQSPI_WR_DUMMY_MASK << CQSPI_WR_DUMMY_LSB);
+    wr |= ((uint32_t)(dummy_cycles & CQSPI_WR_DUMMY_MASK) << CQSPI_WR_DUMMY_LSB);
+
+    REG32(g_qspi.reg, CQSPI_REG_WR_INSTR) = wr;
+}
+
+static inline uint32_t qspi_sdramlevel_write_space_bytes(void)
+{
+    /* For write partition, SDRAMLEVEL[31:16] reports fill level. Space = (partition_size - level) * 4 */
+    uint32_t level = REG32(g_qspi.reg, CQSPI_REG_SDRAMLEVEL);
+    uint32_t wr_loc = (level >> CQSPI_SDRAMLEVEL_WR_LSB) & CQSPI_SDRAMLEVEL_WR_MASK;
+    /* Query partition size: read_locations + write_locations = total locations */
+    uint32_t part_reg = REG32(g_qspi.reg, CQSPI_REG_SRAMPARTITION) & CQSPI_SRAM_PARTITION_MASK;
+    uint32_t read_loc = part_reg + 1u;
+    uint32_t total = CQSPI_SRAM_TOTAL_LOCATIONS;
+    uint32_t write_loc_capacity = total - read_loc;
+    if (wr_loc >= write_loc_capacity) return 0u;
+    return (write_loc_capacity - wr_loc) * 4u;
+}
+
+int qspi_indac_write_ex(uint32_t flash_addr,
+                        const void *buf,
+                        uint32_t len,
+                        uint8_t opcode,
+                        unsigned instr_type /* unused for write per HW; kept for symmetry */, 
+                        unsigned addr_type,
+                        unsigned data_type,
+                        unsigned addr_bytes,
+                        unsigned dummy_cycles)
+{
+    (void)instr_type;
+    if (!buf || len == 0u) return -1;
+
+    /* Caller responsibility: issue WREN and ensure WEL bit set; we try once here for safety */
+    (void)qspi_wren();
+
+    /* step1: program base address for INDAC window (AHB base) */
+    REG32(g_qspi.reg, CQSPI_REG_INDIRECTTRIGGER) = (uint32_t)(uintptr_t)g_qspi.ahb;
+
+    /* Program address length */
+    qspi_program_addr_len(addr_bytes);
+    /* Program write instruction widths/opcode/dummy */
+    qspi_program_write_instr(opcode, addr_type, data_type, dummy_cycles);
+
+    /* step2/5: Write start address and total bytes */
+    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRSTARTADDR) = flash_addr;
+    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWRBYTES) = len;
+
+    /* step6: Trigger indirect write */
+    REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_START;
+
+    /* Stream data into AHB aperture write window */
+    const uint8_t *src = (const uint8_t *)buf;
+    uint32_t remaining = len;
+    volatile uint8_t *ahb = (volatile uint8_t *)g_qspi.ahb;
+    uint32_t guard = 0u;
+
+    while (remaining)
+    {
+        uint32_t space = qspi_sdramlevel_write_space_bytes();
+        if (space)
+        {
+            uint32_t push = (space > remaining) ? remaining : space;
+            for (uint32_t i = 0; i < push; ++i) ahb[0] = src[i];
+            src += push;
+            remaining -= push;
+            guard = 0u;
+        }
+        else
+        {
+            if (++guard > 10000000u)
+            {
+                if (s_qspi_verbose) printf("[QSPI] INDAC write guard timeout (remain=%lu)\n", (unsigned long)remaining);
+                break;
+            }
+            for (volatile uint32_t d = 0; d < 50u; ++d) __NOP();
+        }
+    }
+
+    /* Wait for completion flag */
+    for (uint32_t t = 0; t < 10000000u; ++t)
+    {
+        uint32_t wrctl = REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR);
+        if (wrctl & CQSPI_INDIRECTWR_DONE) {
+            /* Clear DONE (W1C) */
+            REG32(g_qspi.reg, CQSPI_REG_INDIRECTWR) = CQSPI_INDIRECTWR_DONE;
+            break;
+        }
+        if ((t % 1000u) == 999u) { for (volatile uint32_t k = 0; k < 10u; ++k) __NOP(); }
+    }
+
+    /* It is typical to wait until flash finishes program */
+    return qspi_wait_ready(50u);
+}
+
+int qspi_indac_write_pp(uint32_t flash_addr, const void *buf, uint32_t len)
+{
+    /* Page Program 0x02, 1-1-1, 0 dummy, 3-byte address by default */
+    return qspi_indac_write_ex(flash_addr, buf, len,
+                               W25Q_CMD_PP,
+                               CQSPI_INST_TYPE_SINGLE, /* ignored */
+                               CQSPI_INST_TYPE_SINGLE,
+                               CQSPI_INST_TYPE_SINGLE,
+                               3u,
+                               0u);
 }

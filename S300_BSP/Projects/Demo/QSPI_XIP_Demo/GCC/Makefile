@@ -5,12 +5,20 @@ ROOT        := $(abspath $(CURDIR)/../../../..)
 DEVICE_DIR  := $(ROOT)/CMSIS/Device/PiMCHIP/S300
 LD_SCRIPT   := $(ROOT)/ld/sram.ld
 
-# 支持不同版本的XIP demo
-# 使用方法: make XIP_VERSION=advanced
+# Debug switch: make DEBUG=1 enables -g3 -Og
+DEBUG ?= 0
+
+# 支持不同版本的XIP/INDAC demo
+# 使用方法: make XIP_VERSION=advanced 或 XIP_VERSION=indac
 XIP_VERSION ?= basic
 ifeq ($(XIP_VERSION),advanced)
     MAIN_SOURCE := $(PROJECT_DIR)/Src/main_advanced.c
     TARGET := s300_demo_qspi_xip_advanced
+else ifeq ($(XIP_VERSION),indac)
+	MAIN_SOURCE := $(PROJECT_DIR)/Src/main_indac.c
+	TARGET := s300_demo_qspi_indac
+	# Break at main by default for INDAC demo debugging
+	GDB_MAIN_EX := -ex "break main"
 else
     MAIN_SOURCE := $(PROJECT_DIR)/Src/main.c
     TARGET := s300_demo_qspi_xip_basic
@@ -35,6 +43,11 @@ ASFLAGS := $(CFLAGS)
 
 LDFLAGS := -T$(LD_SCRIPT) -nostartfiles -Wl,--gc-sections -Wl,-Map=$(BUILD_DIR)/$(TARGET).map \
    -Wl,-u,_printf_float -Wl,-u,_scanf_float -Wl,-u,_printf_long_long -Wl,-u,_scanf_long_long
+
+ifeq ($(DEBUG),1)
+	CFLAGS  += -g3 -Og -DDEBUG
+	LDFLAGS += -g3
+endif
 
 SRCS := \
 	$(DEVICE_DIR)/Source/GCC/startup_S300.S \
@@ -95,25 +108,40 @@ help:
 	@echo "  clean    - Clean build files"
 	@echo "  print    - Print build configuration"
 	@echo "  dbg      - Launch GDB for debugging"
+	@echo "  indac    - Build INDAC demo (alias for XIP_VERSION=indac all)"
+	@echo "  dbg_indac- Launch GDB for INDAC demo (alias for XIP_VERSION=indac dbg)"
 	@echo "  help     - Show this help"
 	@echo ""
 	@echo "XIP Demo Versions:"
 	@echo "  make XIP_VERSION=basic    - Basic XIP demo (default)"
 	@echo "  make XIP_VERSION=advanced - Advanced XIP demo with more features"
+	@echo "  make XIP_VERSION=indac    - INDAC read/write demo (non-DMA)"
 	@echo ""
 	@echo "Debug examples:"
 	@echo "  make XIP_VERSION=basic dbg    - Debug basic XIP demo"
 	@echo "  make XIP_VERSION=advanced dbg - Debug advanced XIP demo"
+	@echo "  make XIP_VERSION=indac dbg    - Debug INDAC demo"
+	@echo "  make dbg_indac                 - Same as above (shortcut)"
 
 # GDB调试目标
 GDB_PORT ?= 3333
-dbg: all
+dbg:
+	@echo "Rebuilding with DEBUG=1..."
+	@$(MAKE) clean >/dev/null 2>&1 || true
+	@$(MAKE) DEBUG=1 XIP_VERSION=$(XIP_VERSION) all
 	@echo "Launching GDB for $(TARGET)..."
 	@ELF_PATH="$(BUILD_DIR)/$(TARGET).elf"; \
 	if [ ! -f "$$ELF_PATH" ]; then \
 	  echo "ELF file not found: $$ELF_PATH"; exit 2; \
 	fi; \
 	echo "Using ELF: $$ELF_PATH (GDB_PORT=$(GDB_PORT))"; \
-	arm-none-eabi-gdb -q -ex "file $$ELF_PATH" -ex "target extended-remote :$(GDB_PORT)" -x $(ROOT)/gdbinit.common.gdb
+	arm-none-eabi-gdb -q -ex "file $$ELF_PATH" -ex "target extended-remote :$(GDB_PORT)" $(GDB_MAIN_EX) -x $(ROOT)/gdbinit.common.gdb
 
-.PHONY: all clean prep print help dbg
+.PHONY: all clean prep print help dbg indac dbg_indac
+
+# Convenience targets for INDAC demo
+indac:
+	@$(MAKE) XIP_VERSION=indac all
+
+dbg_indac:
+	@$(MAKE) XIP_VERSION=indac dbg

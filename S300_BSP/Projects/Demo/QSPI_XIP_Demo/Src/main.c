@@ -73,11 +73,11 @@ static const uint8_t correct_test_function_code[] =
 static int configure_xip_mode(void)
 {
     printf("Configuring XIP mode...\n");
-    /* 首先配置Quad读取模式(1-1-4)，与SPL保持一致 */
-    qspi_configure_quad_read(true);
-    /* 启用直接访问模式 (XIP) */
+    /* 首先配置Quad读取模式(1-4-4)，与SPL保持一致 */
+    qspi_configure_quad_io_read(true, true);
+    /* 启用直接访问模式 (XIP) 和在下个READ时进入XIP模式 */
     uint32_t cfg = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
-    cfg |= CQSPI_CFG_DIRECT;
+    cfg |= (CQSPI_CFG_DIRECT | CQSPI_CFG_XIP_NEXT);
     REG32(g_qspi.reg, CQSPI_REG_CONFIG) = cfg;
     printf("XIP mode configured\n");
     return 0;
@@ -89,7 +89,7 @@ static int exit_xip_mode(void)
     printf("Exiting XIP mode...\n");
     /* 禁用直接访问模式 */
     uint32_t cfg = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
-    cfg &= ~(CQSPI_CFG_DIRECT | CQSPI_CFG_XIP_IMM);
+    cfg &= ~(CQSPI_CFG_DIRECT | CQSPI_CFG_XIP_NEXT);
     REG32(g_qspi.reg, CQSPI_REG_CONFIG) = cfg;
     /* 清除模式位配置 */
     uint32_t rd = REG32(g_qspi.reg, CQSPI_REG_RD_INSTR);
@@ -97,7 +97,7 @@ static int exit_xip_mode(void)
     REG32(g_qspi.reg, CQSPI_REG_RD_INSTR) = rd;
     REG32(g_qspi.reg, CQSPI_REG_MODE_BIT) = 0;
     /* 恢复到标准读取模式 */
-    qspi_configure_quad_read(false);
+    qspi_configure_quad_io_read(false, false);
     printf("XIP mode exited\n");
     return 0;
 }
@@ -316,7 +316,7 @@ int main(void)
     printf("AHB clock: %lu Hz\n", (unsigned long)ahb_clk);
     /* 初始化QSPI控制器 */
     printf("\n=== Step 1: QSPI Initialization ===\n");
-    const uint32_t qspi_freq = ahb_clk / 4;  /* 使用中等频率 */
+    const uint32_t qspi_freq = ahb_clk / 2;  /* 使用中等频率 */
     printf("QSPI frequency: %lu Hz\n", (unsigned long)qspi_freq);
     qspi_cadence_init(ahb_clk, qspi_freq);
     /* 初始化W25Qxx驱动并启用Quad模式 */

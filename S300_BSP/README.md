@@ -173,6 +173,9 @@ openocd -f s300_openocd.cfg -c "program build/app.elf verify reset exit"
 - 完整的测试验证
 - 更新相关文档
 
+### 提交模板
+- 仓库提供了统一的提交规范模板，位于 `docs/COMMIT_MESSAGE_TEMPLATE.md`，请在提交时参考 Angular 风格 + Emoji 约定
+
 ## 📄 许可证
 
 本项目采用MIT许可证，详见LICENSE文件。

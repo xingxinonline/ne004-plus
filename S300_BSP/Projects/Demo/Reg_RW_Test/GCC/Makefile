@@ -1,11 +1,11 @@
-TARGET      := cortex-m4-qspi_w25q128_test
+TARGET      := cortex-m4-reg_rw_test
 BUILD_DIR   := build
 PROJECT_DIR := $(CURDIR)/..
 ROOT        := $(abspath $(CURDIR)/../../../..)
 DEVICE_DIR  := $(ROOT)/CMSIS/Device/PiMCHIP/S300
 LD_SCRIPT   := $(ROOT)/ld/sram.ld
 
-CASE_NAME   := qspi_w25q128_test
+CASE_NAME   := reg_rw_test
 OUT_DIR     := $(BUILD_DIR)/cortex-m4-$(CASE_NAME)/ram/out
 
 CC      := arm-none-eabi-gcc
@@ -18,12 +18,8 @@ SIZE    := arm-none-eabi-size
 CFLAGS  := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 \
 	-O2 -ffunction-sections -fdata-sections -fno-builtin -Wall -Wextra \
 	-I$(DEVICE_DIR)/Include -I$(ROOT)/CMSIS/Core/Include \
-	-I$(ROOT)/Boards/generic_evb \
 	-I$(ROOT)/Drivers/SoC/RCC/Include \
-	-I$(ROOT)/Drivers/SoC/GPIO/Include \
-	-I$(ROOT)/Drivers/SoC/UART/Include \
-	-I$(ROOT)/Drivers/SoC/QSPI/Include \
-	-I$(ROOT)/Drivers/External/W25Qxx/Include
+	-I$(ROOT)/Drivers/SoC/GPIO/Include
 ASFLAGS := $(CFLAGS)
 
 LDFLAGS := -T$(LD_SCRIPT) -nostartfiles -Wl,--gc-sections -Wl,-Map=$(BUILD_DIR)/$(TARGET).map \
@@ -33,14 +29,7 @@ SRCS := \
 	$(DEVICE_DIR)/Source/GCC/startup_S300.S \
 	$(DEVICE_DIR)/Source/system_S300.c \
 	$(PROJECT_DIR)/Src/main.c \
-	$(ROOT)/Boards/generic_evb/board.c \
-	$(ROOT)/Boards/generic_evb/retarget.c \
-	$(ROOT)/Boards/generic_evb/syscalls.c \
-	$(ROOT)/Drivers/SoC/RCC/Source/rcc.c \
-	$(ROOT)/Drivers/SoC/GPIO/Source/gpio.c \
-	$(ROOT)/Drivers/SoC/UART/Source/uart.c \
-	$(ROOT)/Drivers/SoC/QSPI/Source/qspi_cadence.c \
-	$(ROOT)/Drivers/External/W25Qxx/Source/w25qxx.c
+	$(ROOT)/Drivers/SoC/GPIO/Source/gpio.c
 
 SRCS_REL := $(patsubst $(ROOT)/%,%,$(SRCS))
 OBJS := $(addprefix $(BUILD_DIR)/,$(SRCS_REL))

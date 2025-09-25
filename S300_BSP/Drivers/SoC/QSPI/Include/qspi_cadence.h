@@ -205,6 +205,7 @@ extern "C" {
 #define   CQSPI_IRQ_RX_CRC_VALID         (1u << 17)  /* RX CRC data valid */
 #define   CQSPI_IRQ_TX_CRC_BROKEN        (1u << 18)  /* TX CRC chunk was broken */
 #define   CQSPI_IRQ_ECC_FAIL             (1u << 19)  /* ECC failure */
+#define   CQSPI_IRQ_STATUS_MASK          0x1FFFFu
 
 /* Interrupt Mask Register */
 #define CQSPI_REG_IRQMASK                0x44u
@@ -388,6 +389,102 @@ extern "C" {
 #define   CQSPI_MODULE_ID_CONFIG_LSB     0u          /* Configuration ID number */
 #define   CQSPI_MODULE_ID_CONFIG_MASK    0x3u
 
+typedef enum
+{
+	CQSPI_BUSWIDTH_1 = 0,
+	CQSPI_BUSWIDTH_2 = 1,
+	CQSPI_BUSWIDTH_4 = 2,
+	CQSPI_BUSWIDTH_8 = 3
+} cqspi_buswidth_t;
+
+typedef struct
+{
+	uint32_t tshsl_ns;
+	uint32_t tchsh_ns;
+	uint32_t tslch_ns;
+	uint32_t tsd2d_ns;
+	uint8_t read_delay;
+	uint8_t tx_delay;
+	bool bypass;
+	bool sample_edge;
+	bool dqs_enable;
+} cqspi_timing_cfg_t;
+
+typedef struct
+{
+	uint8_t opcode;
+	uint8_t addr_bytes;
+	cqspi_buswidth_t instr_width;
+	cqspi_buswidth_t addr_width;
+	cqspi_buswidth_t data_width;
+	uint8_t dummy_cycles;
+	bool mode_enable;
+	uint8_t mode_bits;
+} cqspi_indirect_read_config_t;
+
+typedef struct
+{
+	uint8_t opcode;
+	uint8_t addr_bytes;
+	cqspi_buswidth_t instr_width;
+	cqspi_buswidth_t addr_width;
+	cqspi_buswidth_t data_width;
+	bool mode_enable;
+	uint8_t mode_bits;
+} cqspi_indirect_write_config_t;
+
+typedef struct
+{
+	uint8_t opcode;
+	uint8_t addr_bytes;
+	uint32_t address;
+	uint8_t dummy_cycles;
+	uint8_t write_len;
+	uint8_t read_len;
+	bool mode_enable;
+	uint8_t mode_bits;
+} cqspi_stig_cmd_t;
+
+typedef struct
+{
+	uintptr_t reg_base;
+	uintptr_t ahb_base;
+	uint32_t ref_clk_hz;
+	uint32_t trigger_address;
+	uint32_t sram_partition;
+	uint32_t fifo_width_bytes;
+	bool decode_cs;
+} cqspi_config_t;
+
+typedef struct
+{
+	volatile uint8_t *regs;
+	volatile uint8_t *ahb;
+	uint32_t ref_clk_hz;
+	uint32_t current_sclk_hz;
+	uint32_t indirect_timeout_us;
+	uint32_t read_timeout_us;
+	uint32_t fifo_width_bytes;
+	uint32_t sram_partition_words;
+	uint32_t sram_write_partition_words;
+	uint32_t trigger_address;
+	uint8_t current_cs;
+	uint8_t addr_bytes;
+	bool decode_cs;
+	bool is_enabled;
+} cqspi_dev_t;
+
+int cqspi_init(cqspi_dev_t *dev, const cqspi_config_t *cfg);
+void cqspi_deinit(cqspi_dev_t *dev);
+int cqspi_set_chip_select(cqspi_dev_t *dev, uint8_t cs);
+int cqspi_configure_clock(cqspi_dev_t *dev, uint32_t sclk_hz);
+int cqspi_configure_timing(cqspi_dev_t *dev, const cqspi_timing_cfg_t *timing);
+int cqspi_configure_indirect_read(cqspi_dev_t *dev, const cqspi_indirect_read_config_t *cfg);
+int cqspi_configure_indirect_write(cqspi_dev_t *dev, const cqspi_indirect_write_config_t *cfg);
+int cqspi_indirect_read(cqspi_dev_t *dev, uint32_t address, void *buffer, size_t length, uint32_t timeout_us);
+int cqspi_indirect_write(cqspi_dev_t *dev, uint32_t address, const void *buffer, size_t length, uint32_t timeout_us);
+int cqspi_stig_execute(cqspi_dev_t *dev, const cqspi_stig_cmd_t *cmd, void *rx, const void *tx);
+int cqspi_wait_idle(const cqspi_dev_t *dev, uint32_t timeout_us);
 
 #ifdef __cplusplus
 }

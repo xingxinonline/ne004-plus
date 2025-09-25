@@ -124,6 +124,7 @@ openocd -f s300_openocd.cfg -c "program build/app.elf verify reset exit"
 
 - **HAL层**: 硬件抽象层，提供统一API
 - **外设驱动**: UART、GPIO、DMA、I2S、QSPI等
+- **QSPI**: 新增Cadence控制器驱动（`Drivers/SoC/QSPI/Source/qspi_cadence.c`），参考Linux cadence-quadspi实现，支持间接读写与STIG命令
 - **外部设备**: OV5640摄像头、W25Q128 Flash、WM8978音频等
 
 ### 启动和OTA系统
@@ -147,16 +148,19 @@ openocd -f s300_openocd.cfg -c "program build/app.elf verify reset exit"
 ## 🔬 演示项目
 
 ### 基础演示
+
 - **HelloWorld** - 基本的UART输出和LED闪烁
 - **UART Echo** - 串口回显测试
 - **GPIO控制** - GPIO输入输出控制
 
 ### 外设演示  
+
 - **DMA传输** - 内存到内存、UART DMA等
 - **I2S音频** - I2S接口音频录放
 - **QSPI Flash** - QSPI Flash读写和XIP模式
 
 ### 系统演示
+
 - **QSPI XIP** - Flash就地执行演示
 - **OV5640摄像头** - 摄像头图像采集
 - **WM8978音频** - 音频编解码器控制
@@ -164,16 +168,19 @@ openocd -f s300_openocd.cfg -c "program build/app.elf verify reset exit"
 ## 🤝 贡献指南
 
 ### 代码规范
+
 - 遵循`docs/coding_style_cn.md`中的编码规范
 - 使用统一的头文件保护和注释格式
 - 确保代码与CMSIS标准兼容
 
 ### 提交要求
+
 - 清晰的提交信息
 - 完整的测试验证
 - 更新相关文档
 
 ### 提交模板
+
 - 仓库提供了统一的提交规范模板，位于 `docs/COMMIT_MESSAGE_TEMPLATE.md`，请在提交时参考 Angular 风格 + Emoji 约定
 
 ## 📄 许可证

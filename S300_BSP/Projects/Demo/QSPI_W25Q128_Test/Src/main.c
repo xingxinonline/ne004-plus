@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 #include "s300.h"
 #include "rcc.h"
@@ -8,154 +9,6 @@
 #include "qspi_cadence.h"  // 直接使用QSPI底层接口
 
 typedef uint32_t UINT32;
-
-/*
- * Debug Flow 状态说明:
- *
- * 主阶段划分 (高8位):
- *   0x00: 初始化阶段
- *   0x10: Flash初始化阶段
- *   0x20: 基本功能测试阶段
- *   0x30: 四线(QSPI)测试阶段
- *   0x40: 程序完成阶段
- *
- * 子阶段划分 (低8位):
- *   0x01: 开始
- *   0x02: 成功完成
- *   0x03: 失败
- *   0x11: 写入相关开始
- *   0x12: 写入相关成功
- *   0x13: 写入相关失败
- *   0x21: 读取相关开始
- *   0x22: 读取相关成功
- *   0x23: 读取相关失败
- *   0x31: 验证相关开始
- *   0x32: 验证相关成功
- *   0x33: 验证相关失败
- *
- * 具体状态值:
- *   0x0001: 初始化开始
- *   0x0002: 板级初始化完成
- *   0x0003: 时钟初始化完成
- *   0x1001: Flash初始化开始
- *   0x1002: Flash初始化成功
- *   0x1003: Flash初始化失败
- *   0x2001: 擦除测试开始
- *   0x2002: 擦除测试成功
- *   0x2003: 擦除测试失败
- *   0x2011: 写入测试开始
- *   0x2012: 写入测试成功
- *   0x2013: 写入测试失败
- *   0x2021: 读取测试开始
- *   0x2022: 读取测试成功
- *   0x2023: 读取测试失败
- *   0x2031: 验证测试开始
- *   0x2032: 验证测试成功
- *   0x2033: 验证测试失败
- *   0x3001: 四线配置开始
- *   0x3002: 四线配置成功
- *   0x3003: 四线配置失败
- *   0x3011: 四线读取开始
- *   0x3012: 四线读取成功
- *   0x3013: 四线读取失败
- *   0x3021: 四线擦除开始
- *   0x3022: 四线擦除成功
- *   0x3023: 四线擦除失败
- *   0x3031: 四线写入开始
- *   0x3032: 四线写入成功
- *   0x3033: 四线写入失败
- *   0x3041: 四线IO测试开始
- *   0x3042: 四线IO测试成功
- *   0x3043: 四线IO测试失败
- *   0x4001: 所有测试通过
- *   0x4002: 程序正常结束
- *
- * 使用方法:
- * 通过读取DEBUG_FLOW_c的值，可以确定程序执行到了哪个阶段。
- * 如果程序异常终止，通过DEBUG_FLOW_c可以快速定位问题发生的位置。
- *
- * 当前测试策略:
- * 由于硬件调试阶段可能不知道Flash的具体型号和厂家信息，
- * 程序目前只进行Flash初始化和ID读取测试，不进行复杂的读写操作。
- * 这可以帮助确认：
- *   - Flash芯片是否存在
- *   - QSPI通信是否正常
- *   - 芯片的基本信息（厂家ID、设备ID、容量等）
- *
- * DEBUG_ARG1_c 格式: [厂家ID(8bit)][设备ID(8bit)][存储类型(8bit)][容量代码(8bit)]
- * 例如: 0xEF401518 表示 Winbond W25Q128 (EF=Winbond, 40=W25Q128)
- */
-
-#define DEBUG_BASE    			(M4_SLV_RAM0_END - 0x3F) //RAM8K
-
-#define DEBUG_ARG0				(DEBUG_BASE + 0x0000 ) //
-#define DEBUG_ARG1				(DEBUG_BASE + 0x0004 ) //
-#define DEBUG_ARG2				(DEBUG_BASE + 0x0008 ) //
-#define DEBUG_ARG3				(DEBUG_BASE + 0x000C ) //
-
-#define DEBUG_ST				(DEBUG_BASE + 0x0010 ) // 测试状态；OK:0xAAAAAAAA;ERR OTHER
-#define DEBUG_ISRS				(DEBUG_BASE + 0x0014 ) // 中断次数;目前程序中预设10次
-#define DEBUG_CODE				(DEBUG_BASE + 0x0018 ) // 程序运行结束 OK:0xAAAAAAAA;ERR OTHER
-#define DEBUG_FLOW				(DEBUG_BASE + 0x001C ) //
-
-//c语言调用
-#define DEBUG_ARG0_c			(*((volatile UINT32*)(DEBUG_ARG0 ))) //
-#define DEBUG_ARG1_c			(*((volatile UINT32*)(DEBUG_ARG1 ))) //
-#define DEBUG_ARG2_c			(*((volatile UINT32*)(DEBUG_ARG2 ))) //
-#define DEBUG_ARG3_c			(*((volatile UINT32*)(DEBUG_ARG3 ))) //
-
-#define DEBUG_ST_c				(*((volatile UINT32*)(DEBUG_ST ))) // 测试状态；OK:0xAAAAAAAA;ERR OTHER
-#define DEBUG_ISRS_c			(*((volatile UINT32*)(DEBUG_ISRS ))) // 中断次数
-#define DEBUG_CODE_c			(*((volatile UINT32*)(DEBUG_CODE ))) // 程序运行结束 OK:0xAAAAAAAA;ERR OTHER
-#define DEBUG_FLOW_c			(*((volatile UINT32*)(DEBUG_FLOW ))) //
-
-// Debug Flow 状态定义 (高8位:主阶段, 低8位:子阶段)
-// 主阶段: 0x00=初始化, 0x10=Flash初始化, 0x20=基本测试, 0x30=四线测试, 0x40=完成
-// 子阶段: 具体操作步骤
-#define FLOW_INIT_START         0x0001  // 初始化开始
-#define FLOW_INIT_BOARD         0x0002  // 板级初始化完成
-#define FLOW_INIT_RCC           0x0003  // 时钟初始化完成
-#define FLOW_INIT_FLASH_START   0x1001  // Flash初始化开始
-#define FLOW_INIT_FLASH_OK      0x1002  // Flash初始化成功
-#define FLOW_INIT_FLASH_FAIL    0x1003  // Flash初始化失败
-#define FLOW_TEST_ERASE_START   0x2001  // 擦除测试开始
-#define FLOW_TEST_ERASE_OK      0x2002  // 擦除测试成功
-#define FLOW_TEST_ERASE_FAIL    0x2003  // 擦除测试失败
-#define FLOW_TEST_WRITE_START   0x2011  // 写入测试开始
-#define FLOW_TEST_WRITE_OK      0x2012  // 写入测试成功
-#define FLOW_TEST_WRITE_FAIL    0x2013  // 写入测试失败
-#define FLOW_TEST_READ_START    0x2021  // 读取测试开始
-#define FLOW_TEST_READ_OK       0x2022  // 读取测试成功
-#define FLOW_TEST_READ_FAIL     0x2023  // 读取测试失败
-#define FLOW_TEST_VERIFY_START  0x2031  // 验证测试开始
-#define FLOW_TEST_VERIFY_OK     0x2032  // 验证测试成功
-#define FLOW_TEST_VERIFY_FAIL   0x2033  // 验证测试失败
-#define FLOW_DAC_WRITE_START    0x2041  // DAC写入开始
-#define FLOW_DAC_WRITE_OK       0x2042  // DAC写入成功
-#define FLOW_DAC_WRITE_FAIL     0x2043  // DAC写入失败
-#define FLOW_DAC_READ_START     0x2051  // DAC读取开始
-#define FLOW_DAC_READ_OK        0x2052  // DAC读取成功
-#define FLOW_DAC_READ_FAIL      0x2053  // DAC读取失败
-#define FLOW_DAC_VERIFY_START   0x2061  // DAC验证开始
-#define FLOW_DAC_VERIFY_OK      0x2062  // DAC验证成功
-#define FLOW_DAC_VERIFY_FAIL    0x2063  // DAC验证失败
-#define FLOW_QUAD_CONFIG_START  0x3001  // 四线配置开始
-#define FLOW_QUAD_CONFIG_OK     0x3002  // 四线配置成功
-#define FLOW_QUAD_CONFIG_FAIL   0x3003  // 四线配置失败
-#define FLOW_QUAD_READ_START    0x3011  // 四线读取开始
-#define FLOW_QUAD_READ_OK       0x3012  // 四线读取成功
-#define FLOW_QUAD_READ_FAIL     0x3013  // 四线读取失败
-#define FLOW_QUAD_ERASE_START   0x3021  // 四线擦除开始
-#define FLOW_QUAD_ERASE_OK      0x3022  // 四线擦除成功
-#define FLOW_QUAD_ERASE_FAIL    0x3023  // 四线擦除失败
-#define FLOW_QUAD_WRITE_START   0x3031  // 四线写入开始
-#define FLOW_QUAD_WRITE_OK      0x3032  // 四线写入成功
-#define FLOW_QUAD_WRITE_FAIL    0x3033  // 四线写入失败
-#define FLOW_QUAD_IO_START      0x3041  // 四线IO测试开始
-#define FLOW_QUAD_IO_OK         0x3042  // 四线IO测试成功
-#define FLOW_QUAD_IO_FAIL       0x3043  // 四线IO测试失败
-#define FLOW_ALL_TESTS_PASS     0x4001  // 所有测试通过
-#define FLOW_PROGRAM_END        0x4002  // 程序正常结束
 
 #define TEST_PAGE_SIZE          256u
 #define TEST_SUBSECTOR_SIZE     4096u   // N25Q Subsector Erase是4KB (4096字节)
@@ -474,64 +327,64 @@ static int perform_direct_access_test(cqspi_dev_t *qspi, flash_info_t *info) {
     }
 
     if (write_protect_disable(qspi) != 0) {
-        DEBUG_FLOW_c = FLOW_DAC_WRITE_FAIL;
+        printf("DAC write failed: write protect disable failed\n");
         return -1;
     }
 
     if (erase_subsector(qspi, test_address) != 0) {
-        DEBUG_FLOW_c = FLOW_DAC_WRITE_FAIL;
+        printf("DAC write failed: subsector erase failed\n");
         return -1;
     }
 
     // DAC 写入
-    DEBUG_FLOW_c = FLOW_DAC_WRITE_START;
+    printf("DAC write start\n");
     if (flash_direct_write(qspi, test_address, write_buffer, TEST_PAGE_SIZE) != 0) {
-        DEBUG_FLOW_c = FLOW_DAC_WRITE_FAIL;
+        printf("DAC write failed\n");
         return -1;
     }
-    DEBUG_FLOW_c = FLOW_DAC_WRITE_OK;
+    printf("DAC write success\n");
 
     // DAC 读取
-    DEBUG_FLOW_c = FLOW_DAC_READ_START;
+    printf("DAC read start\n");
     if (flash_direct_read(qspi, test_address, direct_read_buffer, TEST_PAGE_SIZE) != 0) {
-        DEBUG_FLOW_c = FLOW_DAC_READ_FAIL;
+        printf("DAC read failed\n");
         return -1;
     }
-    DEBUG_FLOW_c = FLOW_DAC_READ_OK;
+    printf("DAC read success\n");
 
     // 数据校验
-    DEBUG_FLOW_c = FLOW_DAC_VERIFY_START;
+    printf("DAC verify start\n");
     for (uint32_t i = 0; i < TEST_PAGE_SIZE; i++) {
         if (direct_read_buffer[i] != write_buffer[i]) {
-            DEBUG_FLOW_c = FLOW_DAC_VERIFY_FAIL;
+            printf("DAC verify failed: data mismatch at offset %u\n", i);
             return -1;
         }
     }
-    DEBUG_FLOW_c = FLOW_DAC_VERIFY_OK;
+    printf("DAC verify success\n");
 
     return 0;
 }
 
 int main(void)
 {
-    DEBUG_FLOW_c = FLOW_INIT_START; // 初始化开始
+    printf("Initialization start\n");
 
     board_init();
-    DEBUG_FLOW_c = FLOW_INIT_BOARD; // 板级初始化完成
+    printf("Board initialization completed\n");
 
-    DEBUG_CODE_c = 0; // Program start
-    DEBUG_ST_c = 0;   // Clear status
-    DEBUG_FLOW_c = FLOW_INIT_RCC; // 时钟初始化完成
+    printf("Program start\n");
+    printf("Clear status\n");
+    printf("Clock initialization completed\n");
 
     uint32_t ahb_clk = rcc_get_clock(RCC_CLOCK_AHB);
     if (ahb_clk == 0u)
     {
         ahb_clk = SystemCoreClock;
     }
-    DEBUG_ARG0_c = ahb_clk; // Store AHB clock frequency
+    printf("AHB clock frequency: %u Hz\n", ahb_clk);
 
     // 初始化QSPI控制器
-    DEBUG_FLOW_c = FLOW_INIT_FLASH_START; // QSPI初始化开始
+    printf("QSPI initialization start\n");
 
     rcc_set_cortex_m4_apb0_clock(RCC_CM4_APB0_QSPIFLASH, true);
     rcc_set_cortex_m4_ahb_clock(RCC_CM4_AHB_QSPIFLASH, true);
@@ -552,17 +405,17 @@ int main(void)
     int init_result = cqspi_init(&qspi_dev, &qspi_cfg);
     if (init_result != 0)
     {
-        DEBUG_FLOW_c = FLOW_INIT_FLASH_FAIL; // QSPI初始化失败
+        printf("QSPI initialization failed\n");
         // Continue to program end instead of infinite loop
     }
     else
     {
         // 设置QSPI时钟
         if (cqspi_configure_clock(&qspi_dev, 24000000u) != 0) {
-            DEBUG_FLOW_c = FLOW_INIT_FLASH_FAIL; // 时钟配置失败
+            printf("Clock configuration failed\n");
             init_result = -1;
         } else {
-            DEBUG_FLOW_c = FLOW_INIT_FLASH_OK; // QSPI初始化成功
+            printf("QSPI initialization success\n");
         }
     }
 
@@ -584,38 +437,37 @@ int main(void)
     // 将Flash信息存储到debug变量中
     if (test_result == 0)
     {
-        // DEBUG_ARG1_c 格式: [厂家ID(8bit)][设备ID(8bit)][存储类型(8bit)][容量代码(8bit)]
-        DEBUG_ARG1_c = (flash_info.manuf_id << 24) | (flash_info.memory_type << 16) |
-                      (flash_info.capacity << 8) | (uint8_t)flash_info.type;
-        DEBUG_ARG2_c = flash_info.size_bytes;
-        DEBUG_ARG3_c = 0;  // 保留字段
+        // Flash信息格式: [厂家ID(8bit)][设备ID(8bit)][存储类型(8bit)][容量代码(8bit)]
+        printf("Flash info: Manufacturer ID=0x%02X, Device ID=0x%02X, Capacity Code=0x%02X, Type=%s, Size=%u bytes\n",
+               flash_info.manuf_id, flash_info.memory_type, flash_info.capacity,
+               flash_info.type_name, flash_info.size_bytes);
 
-        DEBUG_FLOW_c = FLOW_INIT_FLASH_OK; // Flash ID读取成功
+        printf("Flash ID read success\n");
     }
     else
     {
-        DEBUG_FLOW_c = FLOW_INIT_FLASH_FAIL; // Flash ID读取失败
+        printf("Flash ID read failed\n");
     }
 
-    DEBUG_FLOW_c = FLOW_PROGRAM_END; // 程序正常结束
+    printf("Program end normally\n");
 
     // Set final result at the very end to avoid early simulation termination
     // Current test scope: Flash initialization + ID reading + full read/write test
     if (init_result != 0)
     {
-        DEBUG_CODE_c = 0xEEEEEEEE; // Init failed - set at program end
+        printf("Initialization failed\n");
     }
     else if (test_result != 0)
     {
-        DEBUG_CODE_c = 0xEEEEEEEE; // ID read failed - set at program end
+        printf("ID read failed\n");
     }
     else if (dac_test_result != 0)
     {
-        DEBUG_CODE_c = 0xEEEEEEEE; // DAC test failed - set at program end
+        printf("DAC test failed\n");
     }
     else
     {
-        DEBUG_CODE_c = 0xAAAAAAAA; // All tests successful - set at program end
+        printf("All tests successful\n");
     }
 
     while (1)

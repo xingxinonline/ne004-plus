@@ -483,6 +483,8 @@ int cqspi_configure_indirect_read(cqspi_dev_t *dev, const cqspi_indirect_read_co
 int cqspi_configure_indirect_write(cqspi_dev_t *dev, const cqspi_indirect_write_config_t *cfg);
 int cqspi_indirect_read(cqspi_dev_t *dev, uint32_t address, void *buffer, size_t length, uint32_t timeout_us);
 int cqspi_indirect_write(cqspi_dev_t *dev, uint32_t address, const void *buffer, size_t length, uint32_t timeout_us);
+int cqspi_direct_read(cqspi_dev_t *dev, uint32_t address, void *buffer, size_t length);
+int cqspi_direct_write(cqspi_dev_t *dev, uint32_t address, const void *buffer, size_t length);
 int cqspi_stig_execute(cqspi_dev_t *dev, const cqspi_stig_cmd_t *cmd, void *rx, const void *tx);
 int cqspi_wait_idle(const cqspi_dev_t *dev, uint32_t timeout_us);
 

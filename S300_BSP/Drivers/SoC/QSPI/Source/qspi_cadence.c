@@ -10,6 +10,8 @@ static inline volatile uint32_t *cqspi_reg_ptr(const cqspi_dev_t *dev, uint32_t 
 	return (volatile uint32_t *)(dev->regs + offset);
 }
 
+static void cqspi_controller_enable(cqspi_dev_t *dev, bool enable);
+
 static uint32_t cqspi_readl(const cqspi_dev_t *dev, uint32_t offset)
 {
 	return *cqspi_reg_ptr(dev, offset);
@@ -70,6 +72,40 @@ int cqspi_wait_idle(const cqspi_dev_t *dev, uint32_t timeout_us)
 		return -1;
 	}
 	return cqspi_poll(dev, CQSPI_REG_CONFIG, CQSPI_CFG_IDLE, false, timeout_us ? timeout_us : dev->indirect_timeout_us);
+}
+
+static int cqspi_direct_access_begin(cqspi_dev_t *dev, bool *restore_enabled)
+{
+	if (!dev || !restore_enabled || !dev->regs)
+	{
+		return -1;
+	}
+	*restore_enabled = dev->is_enabled;
+	if (!dev->is_enabled)
+	{
+		cqspi_controller_enable(dev, true);
+	}
+	uint32_t cfg = cqspi_readl(dev, CQSPI_REG_CONFIG);
+	cfg |= CQSPI_CFG_ENABLE | CQSPI_CFG_DIRECT;
+	cqspi_writel(dev, CQSPI_REG_CONFIG, cfg);
+	return cqspi_wait_idle(dev, dev->read_timeout_us);
+}
+
+static int cqspi_direct_access_end(cqspi_dev_t *dev, bool restore_enabled)
+{
+	if (!dev || !dev->regs)
+	{
+		return -1;
+	}
+	uint32_t cfg = cqspi_readl(dev, CQSPI_REG_CONFIG);
+	cfg &= ~CQSPI_CFG_DIRECT;
+	cqspi_writel(dev, CQSPI_REG_CONFIG, cfg);
+	int ret = cqspi_wait_idle(dev, dev->read_timeout_us);
+	if (!restore_enabled)
+	{
+		cqspi_controller_enable(dev, false);
+	}
+	return ret;
 }
 
 static void cqspi_controller_enable(cqspi_dev_t *dev, bool enable)
@@ -554,6 +590,60 @@ int cqspi_stig_execute(cqspi_dev_t *dev, const cqspi_stig_cmd_t *cmd, void *rx, 
 	}
 	cqspi_writel(dev, CQSPI_REG_CMDCTRL, 0u);
 	return 0;
+}
+
+int cqspi_direct_read(cqspi_dev_t *dev, uint32_t address, void *buffer, size_t length)
+{
+	if (!dev || !buffer || length == 0u || !dev->ahb)
+	{
+		return -1;
+	}
+	bool restore_enabled = false;
+	int ret = cqspi_direct_access_begin(dev, &restore_enabled);
+	if (ret != 0)
+	{
+		return ret;
+	}
+	volatile uint8_t *flash_ptr = dev->ahb + address;
+	uint8_t *dst = (uint8_t *)buffer;
+	for (size_t i = 0u; i < length; ++i)
+	{
+		dst[i] = flash_ptr[i];
+	}
+	int idle_ret = cqspi_wait_idle(dev, dev->read_timeout_us);
+	int end_ret = cqspi_direct_access_end(dev, restore_enabled);
+	if (idle_ret != 0)
+	{
+		return idle_ret;
+	}
+	return end_ret;
+}
+
+int cqspi_direct_write(cqspi_dev_t *dev, uint32_t address, const void *buffer, size_t length)
+{
+	if (!dev || !buffer || length == 0u || !dev->ahb)
+	{
+		return -1;
+	}
+	bool restore_enabled = false;
+	int ret = cqspi_direct_access_begin(dev, &restore_enabled);
+	if (ret != 0)
+	{
+		return ret;
+	}
+	volatile uint8_t *flash_ptr = dev->ahb + address;
+	const uint8_t *src = (const uint8_t *)buffer;
+	for (size_t i = 0u; i < length; ++i)
+	{
+		flash_ptr[i] = src[i];
+	}
+	int idle_ret = cqspi_wait_idle(dev, dev->read_timeout_us);
+	int end_ret = cqspi_direct_access_end(dev, restore_enabled);
+	if (idle_ret != 0)
+	{
+		return idle_ret;
+	}
+	return end_ret;
 }
 
 int cqspi_indirect_read(cqspi_dev_t *dev, uint32_t address, void *buffer, size_t length, uint32_t timeout_us)

@@ -393,7 +393,7 @@ static int quad_enable(cqspi_dev_t *qspi) {
 // 等待Flash就绪
 static int wait_flash_ready(cqspi_dev_t *qspi, uint32_t timeout_ms) {
     uint8_t status;
-    uint32_t start_time = 0; // 简化实现，实际应该使用系统时间
+    uint32_t start_time = 0; // 简化实现，使用循环计数近似毫秒
 
     do {
         if (read_status_register(qspi, &status) != 0) {
@@ -402,10 +402,10 @@ static int wait_flash_ready(cqspi_dev_t *qspi, uint32_t timeout_ms) {
         if ((status & 0x01) == 0) { // WIP bit cleared
             return 0;
         }
-        // 简单的延时，实际应该使用更精确的延时
+        // 简单的延时，近似1us级，具体取决于内核频率
         for (volatile int i = 0; i < 1000; i++);
         start_time++;
-    } while (start_time < timeout_ms * 1000);
+    } while (start_time < timeout_ms * 1000u);
 
     return -1; // Timeout
 }
@@ -624,27 +624,23 @@ static void cycle_counter_init(void) {
     }
 
     g_timer_source = TIMER_SOURCE_SYSTICK;
-    g_timer_frequency_hz = (SystemCoreClock != 0u) ? (SystemCoreClock / 8u) : 0u;
 
     SysTick->CTRL = 0u;
-    SysTick->LOAD = 0xFFFFFFu;
+    SysTick->LOAD = 0xFFFFFFu;   // 24-bit counter max
     SysTick->VAL = 0u;
     g_systick_load_value = SysTick->LOAD;
     g_systick_reload_ticks = g_systick_load_value + 1u;
     g_systick_overflow_count = 0u;
 
-    // Use AHB/8 clock to extend overflow window (~0.7s @192MHz core)
-    SysTick->CTRL = SysTick_CTRL_ENABLE_Msk;
-    g_timer_frequency_hz = (SystemCoreClock != 0u) ? (SystemCoreClock / 8u) : 0u;
-    if (g_timer_frequency_hz == 0u && SystemCoreClock != 0u) {
-        g_timer_frequency_hz = SystemCoreClock; // fallback to full clock if division underflows
-    }
+    // Use core clock (HCLK) for SysTick to avoid platform-dependent external reference rates.
+    SysTick->CTRL = SysTick_CTRL_ENABLE_Msk | SysTick_CTRL_CLKSOURCE_Msk;
+    g_timer_frequency_hz = SystemCoreClock;
 
     // Enable overflow interrupt to accumulate full periods
     SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
     __enable_irq();
 
-    printf("Timing source: SysTick fallback (AHB/8)\n");
+    printf("Timing source: SysTick (HCLK)\n");
 }
 
 static uint64_t get_time_ticks(void) {
@@ -652,15 +648,29 @@ static uint64_t get_time_ticks(void) {
         return (uint64_t)DWT->CYCCNT;
     }
 
-    uint32_t overflow_snapshot;
-    uint32_t current_down;
-    do {
-        overflow_snapshot = g_systick_overflow_count;
-        current_down = SysTick->VAL;
-    } while (overflow_snapshot != g_systick_overflow_count);
+    // Capture a consistent snapshot and also account for a pending overflow
+    // even if the SysTick ISR was temporarily masked.
+    uint32_t ov = g_systick_overflow_count;
+    uint32_t val = SysTick->VAL; // read current down-counter
+    uint32_t ctrl = SysTick->CTRL; // reading also clears COUNTFLAG
 
-    uint64_t base_ticks = (uint64_t)overflow_snapshot * (uint64_t)g_systick_reload_ticks;
-    uint32_t elapsed_in_cycle = g_systick_load_value - current_down;
+    // If an overflow occurred since last ISR (or ISR was masked), COUNTFLAG is set.
+    if ((ctrl & SysTick_CTRL_COUNTFLAG_Msk) != 0u) {
+        // Count this additional overflow and re-read VAL after the reload.
+        ov++;
+        val = SysTick->VAL;
+    }
+
+    // Handle rare race where ISR increments after we read ov but before VAL.
+    // In that case, g_systick_overflow_count will be greater than our local ov.
+    uint32_t ov2 = g_systick_overflow_count;
+    if (ov2 != ov) {
+        ov = ov2;
+        val = SysTick->VAL;
+    }
+
+    uint64_t base_ticks = (uint64_t)ov * (uint64_t)g_systick_reload_ticks;
+    uint32_t elapsed_in_cycle = g_systick_load_value - val;
     return base_ticks + (uint64_t)elapsed_in_cycle;
 }
 
@@ -753,6 +763,61 @@ static int dac_write_pattern_range(cqspi_dev_t *qspi, uint32_t address, uint32_t
     return 0;
 }
 
+// 累计计时版本：在一次进入DAC模式后，按页写入并累计每页耗时，减少计时抖动
+static int dac_write_pattern_range_timed(cqspi_dev_t *qspi, uint32_t address, uint32_t length, uint64_t *total_ticks) {
+    if (!qspi || !qspi->ahb || length == 0u || !total_ticks) {
+        return -1;
+    }
+
+    uint8_t page_buffer[TEST_PAGE_SIZE];
+    uint32_t remaining = length;
+    uint32_t curr_addr = address;
+    *total_ticks = 0ULL;
+
+    if (set_direct_access_mode(qspi, true) != 0) {
+        return -1;
+    }
+
+    while (remaining > 0u) {
+        uint32_t offset_in_page = curr_addr & (TEST_PAGE_SIZE - 1u);
+        uint32_t chunk = TEST_PAGE_SIZE - offset_in_page;
+        if (chunk > remaining) {
+            chunk = remaining;
+        }
+
+        for (uint32_t i = 0; i < chunk; i++) {
+            uint32_t global_offset = (curr_addr + i) - address;
+            page_buffer[i] = throughput_pattern(global_offset);
+        }
+
+        if (write_enable(qspi) != 0) {
+            set_direct_access_mode(qspi, false);
+            return -1;
+        }
+
+        uint64_t t0 = get_time_ticks();
+        volatile uint8_t *flash_ptr = qspi->ahb + curr_addr;
+        for (uint32_t i = 0; i < chunk; i++) {
+            flash_ptr[i] = page_buffer[i];
+        }
+        if (wait_flash_ready(qspi, 200) != 0) {
+            set_direct_access_mode(qspi, false);
+            return -1;
+        }
+        uint64_t t1 = get_time_ticks();
+        *total_ticks += (t1 - t0);
+
+        curr_addr += chunk;
+        remaining -= chunk;
+    }
+
+    if (set_direct_access_mode(qspi, false) != 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
 static int dac_read_and_verify_range(cqspi_dev_t *qspi,
                                      uint32_t address,
                                      uint32_t length,
@@ -795,6 +860,69 @@ static int dac_read_and_verify_range(cqspi_dev_t *qspi,
         curr_addr += chunk;
         total_offset += chunk;
         remaining -= chunk;
+    }
+
+    return 0;
+}
+
+// 累计计时版本：在一次进入DAC模式后，分页读取并累计每页耗时
+static int dac_read_and_verify_range_timed(cqspi_dev_t *qspi,
+                                           uint32_t address,
+                                           uint32_t length,
+                                           uint64_t *total_ticks,
+                                           uint32_t *mismatch_offset,
+                                           uint8_t *expected_value,
+                                           uint8_t *actual_value) {
+    if (!qspi || !qspi->ahb || length == 0u || !total_ticks) {
+        return -1;
+    }
+
+    uint8_t page_buffer[TEST_PAGE_SIZE];
+    uint32_t remaining = length;
+    uint32_t curr_addr = address;
+    uint32_t total_offset = 0u;
+    *total_ticks = 0ULL;
+
+    if (set_direct_access_mode(qspi, true) != 0) {
+        return -1;
+    }
+
+    while (remaining > 0u) {
+        uint32_t chunk = (remaining > TEST_PAGE_SIZE) ? TEST_PAGE_SIZE : remaining;
+
+        uint64_t t0 = get_time_ticks();
+        volatile const uint8_t *flash_ptr = qspi->ahb + curr_addr;
+        for (uint32_t i = 0; i < chunk; i++) {
+            page_buffer[i] = flash_ptr[i];
+        }
+        uint64_t t1 = get_time_ticks();
+        *total_ticks += (t1 - t0);
+
+        for (uint32_t i = 0; i < chunk; i++) {
+            uint8_t expected = throughput_pattern(total_offset + i);
+            uint8_t actual = page_buffer[i];
+            if (actual != expected) {
+                if (mismatch_offset) {
+                    *mismatch_offset = total_offset + i;
+                }
+                if (expected_value) {
+                    *expected_value = expected;
+                }
+                if (actual_value) {
+                    *actual_value = actual;
+                }
+                set_direct_access_mode(qspi, false);
+                return -1;
+            }
+        }
+
+        curr_addr += chunk;
+        total_offset += chunk;
+        remaining -= chunk;
+    }
+
+    if (set_direct_access_mode(qspi, false) != 0) {
+        return -1;
     }
 
     return 0;
@@ -846,24 +974,27 @@ static int test_dac_throughput_1mb(cqspi_dev_t *qspi, flash_info_t *info) {
 
     printf("Erase for 1MB DAC test region completed\n");
 
-    uint64_t write_start = get_time_ticks();
-    if (dac_write_pattern_range(qspi, region_start, test_size) != 0) {
+    uint64_t write_ticks = 0ULL;
+    if (dac_write_pattern_range_timed(qspi, region_start, test_size, &write_ticks) != 0) {
         printf("DAC 1MB write failed\n");
         return -1;
     }
-    uint64_t write_ticks = get_time_ticks() - write_start;
 
-    uint64_t read_start = get_time_ticks();
+    uint64_t read_ticks = 0ULL;
     uint32_t mismatch_offset = 0u;
     uint8_t expected_value = 0u;
     uint8_t actual_value = 0u;
-    int verify_result = dac_read_and_verify_range(qspi,
-                                                  region_start,
-                                                  test_size,
-                                                  &mismatch_offset,
-                                                  &expected_value,
-                                                  &actual_value);
-    uint64_t read_ticks = get_time_ticks() - read_start;
+    int verify_result = dac_read_and_verify_range_timed(qspi,
+                                                        region_start,
+                                                        test_size,
+                                                        &read_ticks,
+                                                        &mismatch_offset,
+                                                        &expected_value,
+                                                        &actual_value);
+
+    if (write_ticks == 0ULL || read_ticks == 0ULL) {
+        printf("Warning: measured 0 ticks; timer likely wrapped or not configured as expected. Results may be inaccurate.\n");
+    }
 
     printf("DAC 1MB write time: %lu us (%lu ms)\n",
         (unsigned long)ticks_to_us(write_ticks),

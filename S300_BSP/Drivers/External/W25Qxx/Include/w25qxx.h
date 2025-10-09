@@ -1,50 +1,114 @@
 #ifndef S300_BSP_W25QXX_H
 #define S300_BSP_W25QXX_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+
+#include "qspi_cadence.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* 简单的 W25Qxx 抽象，复用底层 qspi_cadence 提供的 API */
+#define W25QXX_PAGE_SIZE             (256u)
+#define W25QXX_SUBSECTOR_SIZE        (4096u)
+#define W25QXX_BLOCK_SIZE_64K        (64u * 1024u)
+
+typedef enum
+{
+    W25QXX_FLASH_UNKNOWN = 0,
+    W25QXX_FLASH_W25Q,
+    W25QXX_FLASH_N25Q,
+    W25QXX_FLASH_MX25L
+} w25qxx_flash_type_t;
+
+typedef enum
+{
+    W25QXX_READMODE_FAST_1_1_1 = 0,
+    W25QXX_READMODE_FAST_1_1_4,
+    W25QXX_READMODE_FAST_1_4_4
+} w25qxx_read_mode_t;
 
 typedef struct
 {
-    uint8_t manuf_id;   /* 0xEF for Winbond */
-    uint8_t memory_type;/* 0x40 for W25Q series */
-    uint8_t capacity;   /* 0x18 for 128Mbit */
-    uint32_t size_bytes;/* 1<<capacity when capacity>=0x14, else 0 */
-    uint32_t page_size; /* 256 */
-    uint32_t sector_size; /* 4KB */
-    uint32_t block_size; /* 64KB */
+    uint8_t manuf_id;
+    uint8_t memory_type;
+    uint8_t capacity;
+    uint32_t size_bytes;
+    uint32_t page_size;
+    uint32_t subsector_size;
+    uint32_t block_size;
+    w25qxx_flash_type_t type;
+    const char *type_name;
     bool quad_enabled;
     bool addr4b;
-    uint8_t unique_id[8]; /* 64-bit unique ID */
+    uint8_t unique_id[8];
 } w25qxx_info_t;
 
-/* 初始化并读取 ID，必要时配置 QE/4B */
-int w25qxx_init(w25qxx_info_t *info, bool want_quad, bool want_4byte_addr);
+typedef struct
+{
+    uintptr_t reg_base;
+    uintptr_t ahb_base;
+    uint32_t ref_clk_hz;
+    uint32_t trigger_address;
+    uint32_t sram_partition;
+} w25qxx_bus_config_t;
 
-/* 扩展 ID 读取功能 */
-int w25qxx_read_device_id(uint8_t *dev_id);
-int w25qxx_read_manufacturer_device_id(uint8_t *mfg_id, uint8_t *dev_id);
-int w25qxx_read_unique_id(uint8_t *uid, uint32_t len);
-int w25qxx_read_sfdp(uint32_t addr, uint8_t *buf, uint32_t len);
+typedef struct
+{
+    cqspi_dev_t controller;
+    w25qxx_info_t info;
+    uint32_t cached_rd_instr;
+    uint32_t cached_mode_bits;
+    bool cached_read_config_valid;
+    bool direct_mode_active;
+    w25qxx_read_mode_t current_read_mode;
+} w25qxx_device_t;
 
-/* 基础操作 */
-int w25qxx_read(uint32_t addr, void *buf, uint32_t len);
-int w25qxx_write_page(uint32_t addr, const void *buf, uint32_t len); /* len<=256, 不跨页 */
-int w25qxx_write_page_quad(uint32_t addr, const void *buf, uint32_t len); /* 四线写入 */
-int w25qxx_erase_4k(uint32_t addr);
-int w25qxx_erase_32k(uint32_t addr);
-int w25qxx_erase_64k(uint32_t addr);
-int w25qxx_chip_erase(void);
+typedef struct
+{
+    uint32_t config;
+    uint32_t rd_instr;
+    uint32_t mode_bit;
+} w25qxx_xip_state_t;
 
-/* 高级功能 */
-int w25qxx_software_reset(void);
-int w25qxx_configure_read_mode(int mode); /* 0=单线, 1=四线输出, 2=四线I/O */
+int w25qxx_init(w25qxx_device_t *dev,
+                const w25qxx_bus_config_t *bus_cfg,
+                uint32_t default_sclk_hz,
+                bool want_quad,
+                bool want_4byte_addr,
+                w25qxx_info_t *out_info);
+
+const w25qxx_info_t *w25qxx_get_info(const w25qxx_device_t *dev);
+cqspi_dev_t *w25qxx_get_controller(w25qxx_device_t *dev);
+
+int w25qxx_configure_clock(w25qxx_device_t *dev, uint32_t target_hz);
+int w25qxx_select_read_mode(w25qxx_device_t *dev, w25qxx_read_mode_t mode);
+
+int w25qxx_read_jedec_id(w25qxx_device_t *dev, uint8_t id[3]);
+int w25qxx_read_status1(w25qxx_device_t *dev, uint8_t *status);
+int w25qxx_read_status2(w25qxx_device_t *dev, uint8_t *status);
+int w25qxx_write_status2(w25qxx_device_t *dev, uint8_t status);
+int w25qxx_write_enable(w25qxx_device_t *dev);
+int w25qxx_wait_busy_clear(w25qxx_device_t *dev, uint32_t timeout_ms);
+int w25qxx_disable_block_protect(w25qxx_device_t *dev);
+int w25qxx_set_address_mode(w25qxx_device_t *dev, bool addr4b);
+int w25qxx_enable_quad_mode(w25qxx_device_t *dev, bool enable);
+
+int w25qxx_direct_mode_begin(w25qxx_device_t *dev);
+int w25qxx_direct_mode_end(w25qxx_device_t *dev);
+volatile uint8_t *w25qxx_direct_base(const w25qxx_device_t *dev);
+
+int w25qxx_direct_write(w25qxx_device_t *dev, uint32_t address, const uint8_t *data, size_t length);
+int w25qxx_direct_read(w25qxx_device_t *dev, uint32_t address, uint8_t *data, size_t length);
+
+int w25qxx_erase_subsector(w25qxx_device_t *dev, uint32_t address);
+int w25qxx_erase_block64(w25qxx_device_t *dev, uint32_t address);
+
+int w25qxx_enter_xip_144(w25qxx_device_t *dev, w25qxx_xip_state_t *state);
+int w25qxx_exit_xip(w25qxx_device_t *dev, const w25qxx_xip_state_t *state, uint32_t flush_address);
+int w25qxx_issue_legacy_read(w25qxx_device_t *dev, uint32_t address, uint8_t *byte_out);
 
 #ifdef __cplusplus
 }

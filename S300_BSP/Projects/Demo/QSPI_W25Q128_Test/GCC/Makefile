@@ -5,9 +5,6 @@ ROOT        := $(abspath $(CURDIR)/../../../..)
 DEVICE_DIR  := $(ROOT)/CMSIS/Device/PiMCHIP/S300
 LD_SCRIPT   := $(ROOT)/ld/sram.ld
 
-CASE_NAME   := qspi_w25q128_test
-OUT_DIR     := $(BUILD_DIR)/cortex-m4-$(CASE_NAME)/ram/out
-
 CC      := arm-none-eabi-gcc
 AS      := arm-none-eabi-gcc
 OBJCOPY := arm-none-eabi-objcopy
@@ -47,7 +44,7 @@ OBJS := $(addprefix $(BUILD_DIR)/,$(SRCS_REL))
 OBJS := $(patsubst %.c,%.o,$(OBJS))
 OBJS := $(patsubst %.S,%.o,$(OBJS))
 
-all: $(BUILD_DIR)/$(TARGET).elf $(BUILD_DIR)/$(TARGET).bin $(BUILD_DIR)/$(TARGET).hex $(BUILD_DIR)/$(TARGET).dis $(BUILD_DIR)/$(TARGET).all.dis $(BUILD_DIR)/$(TARGET).entrypoint $(BUILD_DIR)/$(TARGET).dua $(BUILD_DIR)/$(TARGET).vmf $(BUILD_DIR)/$(TARGET).rcf $(BUILD_DIR)/$(TARGET).krv copy_to_out
+all: $(BUILD_DIR)/$(TARGET).elf $(BUILD_DIR)/$(TARGET).bin $(BUILD_DIR)/$(TARGET).hex 
 
 $(BUILD_DIR)/%.o: $(ROOT)/%.c | prep
 	@mkdir -p $(dir $@)
@@ -67,54 +64,14 @@ $(BUILD_DIR)/$(TARGET).bin: $(BUILD_DIR)/$(TARGET).elf
 $(BUILD_DIR)/$(TARGET).hex: $(BUILD_DIR)/$(TARGET).elf
 	$(OBJCOPY) -O ihex $< $@
 
-$(BUILD_DIR)/$(TARGET).dis: $(BUILD_DIR)/$(TARGET).elf
-	$(OBJDUMP) -D $< > $@
-
-$(BUILD_DIR)/$(TARGET).all.dis: $(BUILD_DIR)/$(TARGET).elf
-	$(OBJDUMP) -D -S $< > $@
-
-$(BUILD_DIR)/$(TARGET).entrypoint: $(BUILD_DIR)/$(TARGET).elf
-	$(READELF) -s $< | grep "g_pfnVectors" | sed -n 's/.* \([0-9a-fA-F]\{8\}\) .*g_pfnVectors/0x\1/p' > $@
-
-$(BUILD_DIR)/$(TARGET).dua: $(BUILD_DIR)/$(TARGET).bin
-	od -t x4 -An -w4 -v $< > $@
-
-$(BUILD_DIR)/$(TARGET).vmf: $(BUILD_DIR)/$(TARGET).bin
-	echo "@00000000" > $@
-	od -t x1 -An -w16 -v $< >> $@
-
-$(BUILD_DIR)/$(TARGET).rcf: $(BUILD_DIR)/$(TARGET).bin
-	# Placeholder for RCF generation - requires genrom.py script
-	touch $@
-
-$(BUILD_DIR)/$(TARGET).krv: $(BUILD_DIR)/$(TARGET).bin
-	# Placeholder for KRV generation - requires bin2rom.py script
-	touch $@
 
 prep:
 	@mkdir -p $(BUILD_DIR)
 
-copy_to_out: $(BUILD_DIR)/$(TARGET).elf $(BUILD_DIR)/$(TARGET).bin $(BUILD_DIR)/$(TARGET).hex $(BUILD_DIR)/$(TARGET).dis $(BUILD_DIR)/$(TARGET).all.dis $(BUILD_DIR)/$(TARGET).entrypoint $(BUILD_DIR)/$(TARGET).dua $(BUILD_DIR)/$(TARGET).vmf $(BUILD_DIR)/$(TARGET).rcf $(BUILD_DIR)/$(TARGET).krv
-	@mkdir -p $(OUT_DIR)
-	@cp $(BUILD_DIR)/$(TARGET).elf $(OUT_DIR)/
-	@cp $(BUILD_DIR)/$(TARGET).bin $(OUT_DIR)/
-	@cp $(BUILD_DIR)/$(TARGET).hex $(OUT_DIR)/
-	@cp $(BUILD_DIR)/$(TARGET).dis $(OUT_DIR)/
-	@cp $(BUILD_DIR)/$(TARGET).all.dis $(OUT_DIR)/
-	@cp $(BUILD_DIR)/$(TARGET).entrypoint $(OUT_DIR)/
-	@cp $(BUILD_DIR)/$(TARGET).dua $(OUT_DIR)/
-	@cp $(BUILD_DIR)/$(TARGET).vmf $(OUT_DIR)/
-	@cp $(BUILD_DIR)/$(TARGET).rcf $(OUT_DIR)/
-	@cp $(BUILD_DIR)/$(TARGET).krv $(OUT_DIR)/
-	@cp $(BUILD_DIR)/$(TARGET).map $(OUT_DIR)/
-	@echo "Files copied to $(OUT_DIR)"
-	@cd $(BUILD_DIR) && zip -r $(TARGET).zip cortex-m4-$(CASE_NAME)/
-	@echo "Created $(BUILD_DIR)/$(TARGET).zip"
-
 clean:
 	rm -rf $(BUILD_DIR)
 
-.PHONY: all clean prep copy_to_out dbg
+.PHONY: all clean prep dbg
 
 dbg: all
 	# 传递相对于 Projects/ 的路径，如 Demo/QSPI_W25Q128_Test

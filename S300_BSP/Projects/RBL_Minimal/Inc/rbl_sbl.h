@@ -54,6 +54,12 @@ bool rbl_is_valid_reset_vector(uint32_t reset_vector);
 // 配置QSPI为XIP模式
 int rbl_configure_xip_mode(void);
 
+// 退出QSPI的XIP模式
+int rbl_exit_xip_mode(void);
+
+// 简单的XIP读取校验：比较XIP映射数据与QSPI读取结果
+int rbl_test_xip_fetch(void);
+
 #ifdef __cplusplus
 }
 #endif

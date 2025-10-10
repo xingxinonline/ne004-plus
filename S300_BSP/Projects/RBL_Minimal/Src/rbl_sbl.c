@@ -322,3 +322,86 @@ int rbl_configure_xip_mode(void)
     RBL_LOG("[RBL] XIP mode configured\r\n");
     return 0;
 }
+
+int rbl_exit_xip_mode(void)
+{
+    RBL_LOG("[RBL] Exiting QSPI XIP mode...\r\n");
+
+    extern qspi_cadence_t g_qspi;
+    volatile uint32_t *reg_base = (volatile uint32_t *)g_qspi.reg;
+
+    uint32_t cfg = reg_base[CQSPI_REG_CONFIG / 4];
+    bool direct_was_enabled = (cfg & CQSPI_CFG_DIRECT) != 0u;
+
+    // 1. Disable Direct Access (and implicit Indirect) plus any pending XIP requests
+    cfg &= ~(CQSPI_CFG_DIRECT | CQSPI_CFG_XIP_NEXT | CQSPI_CFG_XIP_IMM);
+    reg_base[CQSPI_REG_CONFIG / 4] = cfg;
+    if (rbl_wait_qspi_idle(1000000u) != 0)
+    {
+        RBL_LOG("[RBL] QSPI idle wait (disable direct) timeout\r\n");
+        return -1;
+    }
+
+    // 2. Program mode bits to a non-XIP value per Winbond guidance
+    uint32_t mode_reg = reg_base[CQSPI_REG_MODE_BIT / 4];
+    mode_reg &= ~CQSPI_MODE_BITS_MASK;
+    reg_base[CQSPI_REG_MODE_BIT / 4] = mode_reg;
+    if (rbl_wait_qspi_idle(1000000u) != 0)
+    {
+        RBL_LOG("[RBL] QSPI idle wait (clear mode bits) timeout\r\n");
+        return -1;
+    }
+
+    // 3. Ensure XIP NEXT/IMM remain cleared before re-enabling Direct Access
+    cfg &= ~(CQSPI_CFG_XIP_NEXT | CQSPI_CFG_XIP_IMM);
+
+    if (direct_was_enabled)
+    {
+        cfg |= CQSPI_CFG_DIRECT;
+        reg_base[CQSPI_REG_CONFIG / 4] = cfg;
+        if (rbl_wait_qspi_idle(1000000u) != 0)
+        {
+            RBL_LOG("[RBL] QSPI idle wait (re-enable direct) timeout\r\n");
+            return -1;
+        }
+    }
+
+    // 4. Issue a dummy read to flush the flash's internal XIP latch state
+    if (direct_was_enabled && g_qspi.ahb != NULL)
+    {
+        volatile uint32_t *dummy_ptr = (volatile uint32_t *)g_qspi.ahb;
+        (void)*dummy_ptr;
+    }
+
+    __DSB();
+    __ISB();
+
+    RBL_LOG("[RBL] XIP mode disabled\r\n");
+    return 0;
+}
+
+int rbl_test_xip_fetch(void)
+{
+    RBL_LOG("[RBL] Verifying QSPI XIP fetch path...\r\n");
+
+    uint8_t qspi_sample[16];
+    if (rbl_qspi_read(SBL_FLASH_OFFSET, qspi_sample, sizeof(qspi_sample)) != 0)
+    {
+        RBL_LOG("[RBL] Failed to read sample data via QSPI\r\n");
+        return -1;
+    }
+
+    volatile uint8_t *xip_ptr = (volatile uint8_t *)SBL_FLASH_START_ADDR;
+    for (size_t i = 0; i < sizeof(qspi_sample); ++i)
+    {
+        uint8_t xip_val = xip_ptr[i];
+        if (xip_val != qspi_sample[i])
+        {
+            RBL_LOG("[RBL] XIP fetch mismatch at byte %u\r\n", (unsigned)i);
+            return -1;
+        }
+    }
+
+    RBL_LOG("[RBL] XIP fetch path OK\r\n");
+    return 0;
+}

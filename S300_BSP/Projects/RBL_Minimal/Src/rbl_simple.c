@@ -107,22 +107,48 @@ int main(void)
     RBL_LOG("Build: " __DATE__ " " __TIME__ "\r\n");
     RBL_LOG("================================\r\n\r\n");
 
-    // Phase 2: 初始化 QSPI 并读取 JEDEC ID (使用系统时钟的1/4作为SCLK)
+    // Phase 2: 初始化 QSPI 并读取 JEDEC ID (使用系统时钟的1/2作为SCLK)
     RBL_LOG("[RBL] Starting Phase 2: QSPI initialization...\r\n");
     uint32_t ahb_clk = SystemCoreClock;  // e.g. 192MHz
-    uint32_t safe_freq = ahb_clk / 4;    // QSPI SCLK = SYSCLK/4（带宽与稳定折中）
+    uint32_t safe_freq = ahb_clk / 2;    // QSPI SCLK = SYSCLK/2（带宽与稳定折中）
     RBL_LOG("[RBL] About to call rbl_qspi_init()...\r\n");
     rbl_qspi_init(ahb_clk, safe_freq);
     RBL_LOG("[RBL] rbl_qspi_init() completed\r\n");
+    
+    // 读取JEDEC ID验证QSPI通信
     uint8_t id[3] = {0};
-    if (rbl_qspi_read_jedec_id(id) == 0) {
+    if (rbl_qspi_read_jedec_id(id) == 0)
+    {
         RBL_LOG("[RBL] QSPI JEDEC read ok\r\n");
 
-    // Phase 2 验收：一页读写校验测试
-    // 注意：0x10000(64KB) 处是 SBL 存放区域，不能用来做擦写测试
-    // 改用更高的安全地址 0x40000 (256KB) 以避免覆盖系统镜像
-    if (rbl_qspi_test_page_rw(0x40000) == 0) {
+        // Phase 2 验收：一页读写校验测试
+        // 注意：0x10000(64KB) 处是 SBL 存放区域，不能用来做擦写测试
+        // 改用更高的安全地址 0x40000 (256KB) 以避免覆盖系统镜像
+        if (rbl_qspi_test_page_rw(0x40000) == 0)
+        {
             RBL_LOG("[RBL] Phase 2 validation PASSED!\r\n");
+            
+            // XIP模式测试
+            if (rbl_configure_xip_mode() == 0)
+            {
+                if (rbl_test_xip_fetch() == 0)
+                {
+                    RBL_LOG("[RBL] XIP fetch test PASSED\r\n");
+                }
+                else
+                {
+                    RBL_LOG("[RBL] XIP fetch test FAILED\r\n");
+                }
+
+                if (rbl_exit_xip_mode() != 0)
+                {
+                    RBL_LOG("[RBL] Warning: failed to exit XIP mode cleanly\r\n");
+                }
+            }
+            else
+            {
+                RBL_LOG("[RBL] Configuring XIP mode failed\r\n");
+            }
 
             // Phase 3: SBL 完整性检查与跳转
             RBL_LOG("\r\n[RBL] Starting Phase 3: SBL validation...\r\n");
@@ -147,14 +173,18 @@ int main(void)
                 // rbl_delay_cycles(1000000);  /* 延时1秒 */
                 // NVIC_SystemReset();  /* 重启系统 */
             }
-        } else {
+        }
+        else
+        {
             RBL_LOG("[RBL] Phase 2 validation FAILED!\r\n");
             RBL_LOG("[RBL] QSPI test failed, system reset...\r\n");
             RBL_LOG("[RBL] System reset DISABLED - continuing in main loop\r\n");
             // rbl_delay_cycles(1000000);  /* 延时1秒 */
             // NVIC_SystemReset();  /* 重启系统 */
         }
-    } else {
+    }
+    else
+    {
         RBL_LOG("[RBL] QSPI JEDEC read failed\r\n");
         RBL_LOG("[RBL] QSPI init failed, system reset...\r\n");
         RBL_LOG("[RBL] System reset DISABLED - continuing in main loop\r\n");

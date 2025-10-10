@@ -7,7 +7,7 @@ monitor targets ne005.m4
 
 # Halt and soft-reset only the selected core, then load the image into Flash
 monitor halt
-monitor soft_reset_halt
+# monitor soft_reset_halt
 # Wait until the target is really halted to avoid register write errors
 monitor wait_halt 2000
 load

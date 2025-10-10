@@ -236,21 +236,85 @@ int rbl_sbl_load_and_jump(void)
 
 // === XIP模式配置 ===
 
+static int rbl_wait_qspi_idle(uint32_t timeout_loops)
+{
+    extern qspi_cadence_t g_qspi;
+    volatile uint32_t *reg_base = (volatile uint32_t *)g_qspi.reg;
+    for (uint32_t i = 0; i < timeout_loops; i++)
+    {
+        if ((reg_base[CQSPI_REG_CONFIG / 4] & CQSPI_CFG_IDLE) != 0u)
+        {
+            return 0;
+        }
+        __NOP();
+    }
+    return -1;
+}
+
 int rbl_configure_xip_mode(void)
 {
     // 参考Demo代码的XIP配置方法
     RBL_LOG("[RBL] Configuring QSPI for XIP mode...\r\n");
     
-    // 1. 配置Quad读取模式(1-1-4)，与Demo保持一致
-    qspi_configure_quad_read(true);
-    
-    // 2. 启用直接访问模式 (XIP)
     extern qspi_cadence_t g_qspi;  // 从qspi_cadence.c中引用
     volatile uint32_t *reg_base = (volatile uint32_t *)g_qspi.reg;
+
+    // 1. 安全配置控制寄存器，确保控制器保持使能但先退出 DIRECT 模式
     uint32_t cfg = reg_base[CQSPI_REG_CONFIG / 4];
+    cfg &= ~CQSPI_CFG_DIRECT;
+    cfg |= CQSPI_CFG_ENABLE;
+    reg_base[CQSPI_REG_CONFIG / 4] = cfg;
+    if (rbl_wait_qspi_idle(1000000u) != 0)
+    {
+        RBL_LOG("[RBL] QSPI idle wait (config stage) timeout\r\n");
+        return -1;
+    }
+
+    // 2. 配置 1-4-4 XIP 读取指令 (0xEB) 以及模式位
+    uint32_t xip_rd_instr = ((uint32_t)W25Q_CMD_QUAD_FAST << CQSPI_RD_OPCODE_LSB) |
+                            ((uint32_t)CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB) |
+                            ((uint32_t)CQSPI_INST_TYPE_QUAD << CQSPI_RD_TYPE_ADDR_LSB) |
+                            ((uint32_t)CQSPI_INST_TYPE_QUAD << CQSPI_RD_TYPE_DATA_LSB) |
+                            ((uint32_t)4u << CQSPI_RD_DUMMY_LSB) |
+                            (1u << CQSPI_RD_MODE_EN_LSB);
+    reg_base[CQSPI_REG_RD_INSTR / 4] = xip_rd_instr;
+    if (rbl_wait_qspi_idle(1000000u) != 0)
+    {
+        RBL_LOG("[RBL] QSPI idle wait (rd-instr stage) timeout\r\n");
+        return -1;
+    }
+
+    // 3. 强制设置 Mode bits 寄存器，启用 0xEB 命令所需的 0x20 模式位
+    uint32_t mode_reg = reg_base[CQSPI_REG_MODE_BIT / 4];
+    mode_reg &= ~CQSPI_MODE_BITS_MASK;
+    mode_reg |= (0x20u & CQSPI_MODE_BITS_MASK);
+    reg_base[CQSPI_REG_MODE_BIT / 4] = mode_reg;
+    if (rbl_wait_qspi_idle(1000000u) != 0)
+    {
+        RBL_LOG("[RBL] QSPI idle wait (mode stage) timeout\r\n");
+        return -1;
+    }
+
+    // 4. 通过 XIP_NEXT 进入 XIP，避免立即切换导致指令丢失
+    cfg = reg_base[CQSPI_REG_CONFIG / 4];
+    cfg &= ~CQSPI_CFG_XIP_IMM;
+    cfg |= CQSPI_CFG_XIP_NEXT;
+    reg_base[CQSPI_REG_CONFIG / 4] = cfg;
+    if (rbl_wait_qspi_idle(1000000u) != 0)
+    {
+        RBL_LOG("[RBL] QSPI idle wait (xip-next stage) timeout\r\n");
+        return -1;
+    }
+
+    // 5. 重新开启 DIRECT 直接访问模式
     cfg |= CQSPI_CFG_DIRECT;
     reg_base[CQSPI_REG_CONFIG / 4] = cfg;
-    
+    if (rbl_wait_qspi_idle(1000000u) != 0)
+    {
+        RBL_LOG("[RBL] QSPI idle wait (direct stage) timeout\r\n");
+        return -1;
+    }
+
     // 数据同步屏障
     __DSB();
     __ISB();

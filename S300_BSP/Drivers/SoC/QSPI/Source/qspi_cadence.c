@@ -747,9 +747,9 @@ void qspi_configure_quad_io_read(bool enable)
         /* 启用 Mode bits */
         rd |= (1u << CQSPI_RD_MODE_EN_LSB);
         
-        /* 设置dummy cycles（0xEB命令通常需要6个dummy cycles） */
+        /* 设置dummy cycles（0xEB命令通常需要4个dummy cycles） */
         rd &= ~(0x1Fu << CQSPI_RD_DUMMY_LSB);
-        rd |= (6u << CQSPI_RD_DUMMY_LSB);
+        rd |= (4u << CQSPI_RD_DUMMY_LSB);
         
         if (s_qspi_verbose)
             printf("[QSPI] Configured Fast Read Quad I/O (0xEB, 1-4-4 mode)\n");

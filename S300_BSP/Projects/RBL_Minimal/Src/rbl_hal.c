@@ -1,7 +1,6 @@
 #include "rbl_hal.h"
 #include "s300.h"
 #include <stdarg.h>
-#include <stdio.h>
 #include "rcc.h"
 
 // 寄存器与地址：优先使用 s300_memmap.h 中的定义
@@ -97,10 +96,181 @@ static size_t rbl_strlen(const char *s) {
     return len;
 }
 
-/* 简化的printf实现，避免使用vsnprintf */
+static void rbl_log_write_char(char c) {
+    rbl_uart_write(&c, 1u);
+}
+
+static void rbl_log_write_padding(char pad_char, int count) {
+    while (count-- > 0) {
+        rbl_log_write_char(pad_char);
+    }
+}
+
+static size_t rbl_uint_to_str(uint32_t value, unsigned base, int uppercase, char *out, size_t out_cap) {
+    static const char digits_low[] = "0123456789abcdef";
+    static const char digits_up[]  = "0123456789ABCDEF";
+    const char *digits = uppercase ? digits_up : digits_low;
+    char tmp[32];
+    size_t tmp_len = 0;
+
+    if (base < 2u || base > 16u || out_cap == 0u) {
+        return 0u;
+    }
+
+    do {
+        tmp[tmp_len++] = digits[value % base];
+        value /= base;
+    } while (value != 0u && tmp_len < sizeof(tmp));
+
+    if (tmp_len == 0u) {
+        tmp[tmp_len++] = '0';
+    }
+
+    size_t copy_len = (tmp_len < (out_cap - 1u)) ? tmp_len : (out_cap - 1u);
+    for (size_t i = 0; i < copy_len; ++i) {
+        out[i] = tmp[tmp_len - 1u - i];
+    }
+    out[copy_len] = '\0';
+    return copy_len;
+}
+
+static void rbl_log_write_uint(uint32_t value, unsigned base, int uppercase, char pad_char, int width) {
+    char buf[32];
+    size_t len = rbl_uint_to_str(value, base, uppercase, buf, sizeof(buf));
+    int pad = width - (int)len;
+    if (pad < 0) {
+        pad = 0;
+    }
+    rbl_log_write_padding(pad_char, pad);
+    rbl_uart_write(buf, len);
+}
+
+static void rbl_log_write_int(int32_t value, char pad_char, int width) {
+    uint32_t magnitude;
+    int negative = 0;
+    if (value < 0) {
+        negative = 1;
+        magnitude = (uint32_t)(-(value + 1)) + 1u;
+    } else {
+        magnitude = (uint32_t)value;
+    }
+
+    char buf[32];
+    size_t len = rbl_uint_to_str(magnitude, 10u, 0, buf, sizeof(buf));
+    int total = (int)len + (negative ? 1 : 0);
+    int pad = width - total;
+    if (pad < 0) {
+        pad = 0;
+    }
+
+    if (negative && pad_char == '0') {
+        rbl_log_write_char('-');
+        rbl_log_write_padding('0', pad);
+    } else {
+        rbl_log_write_padding(pad_char, pad);
+        if (negative) {
+            rbl_log_write_char('-');
+        }
+    }
+
+    rbl_uart_write(buf, len);
+}
+
+static void rbl_log_write_string(const char *s, char pad_char, int width) {
+    const char *text = s ? s : "(null)";
+    size_t len = rbl_strlen(text);
+    int pad = width - (int)len;
+    if (pad < 0) {
+        pad = 0;
+    }
+    rbl_log_write_padding(pad_char, pad);
+    rbl_uart_write(text, len);
+}
+
+static void rbl_log_write_pointer(uintptr_t value, int width) {
+    char buf[32];
+    size_t len = rbl_uint_to_str((uint32_t)value, 16u, 0, buf, sizeof(buf));
+    int target_width = width > 0 ? width : (int)(sizeof(void*) * 2u);
+    int pad = target_width - (int)len;
+    if (pad < 0) {
+        pad = 0;
+    }
+    rbl_uart_write("0x", 2u);
+    rbl_log_write_padding('0', pad);
+    rbl_uart_write(buf, len);
+}
+
+static void rbl_log_vprintf(const char *format, va_list args) {
+    while (format && *format) {
+        if (*format != '%') {
+            rbl_log_write_char(*format++);
+            continue;
+        }
+
+        ++format;
+        char pad_char = ' ';
+        int width = 0;
+
+        if (*format == '0') {
+            pad_char = '0';
+            ++format;
+        }
+
+        while (*format >= '0' && *format <= '9') {
+            width = width * 10 + (*format - '0');
+            ++format;
+        }
+
+        char spec = *format ? *format : '\0';
+        if (spec == '\0') {
+            break;
+        }
+
+        switch (spec) {
+            case '%':
+                rbl_log_write_char('%');
+                break;
+            case 'c': {
+                char value = (char)va_arg(args, int);
+                rbl_log_write_char(value);
+                break;
+            }
+            case 's':
+                rbl_log_write_string(va_arg(args, const char *), pad_char, width);
+                break;
+            case 'd':
+            case 'i':
+                rbl_log_write_int(va_arg(args, int32_t), pad_char, width);
+                break;
+            case 'u':
+                rbl_log_write_uint(va_arg(args, uint32_t), 10u, 0, pad_char, width);
+                break;
+            case 'x':
+                rbl_log_write_uint(va_arg(args, uint32_t), 16u, 0, pad_char, width);
+                break;
+            case 'X':
+                rbl_log_write_uint(va_arg(args, uint32_t), 16u, 1, pad_char, width);
+                break;
+            case 'p':
+                rbl_log_write_pointer((uintptr_t)va_arg(args, void *), width);
+                break;
+            default:
+                rbl_log_write_char('%');
+                rbl_log_write_char(spec);
+                break;
+        }
+
+        if (*format != '\0') {
+            ++format;
+        }
+    }
+}
+
 void rbl_log_printf(const char *format, ...) {
-    /* 暂时使用简化版本，直接输出格式字符串 */
-    rbl_uart_write(format, rbl_strlen(format));
+    va_list args;
+    va_start(args, format);
+    rbl_log_vprintf(format, args);
+    va_end(args);
 }
 
 /* 空的printf替代函数，用于替换QSPI驱动中的调试输出 */

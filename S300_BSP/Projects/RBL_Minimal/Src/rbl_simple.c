@@ -52,6 +52,20 @@ static int rbl_rolling_contains(const char *buf, int len, const char *token) {
     return 0;
 }
 
+static void rbl_log_type_test(void) {
+    int32_t signed_val = -12345;
+    uint32_t unsigned_val = 0xDEADBEEFu;
+    const char *text = "format";
+    void *ptr = (void *)0x20000000u;
+
+    RBL_LOG("[RBL][log] string: %s\r\n", text);
+    RBL_LOG("[RBL][log] signed: %d\r\n", signed_val);
+    RBL_LOG("[RBL][log] unsigned: %u\r\n", unsigned_val);
+    RBL_LOG("[RBL][log] hex: 0x%08X\r\n", unsigned_val);
+    RBL_LOG("[RBL][log] char: %c\r\n", 'A');
+    RBL_LOG("[RBL][log] pointer: %p\r\n", ptr);
+}
+
 // 系统初始化函数 (startup.s需要的)
 void SystemInit(void)
 {
@@ -106,6 +120,8 @@ int main(void)
     RBL_LOG("Hello from SRAM RBL!\r\n");
     RBL_LOG("Build: " __DATE__ " " __TIME__ "\r\n");
     RBL_LOG("================================\r\n\r\n");
+
+    rbl_log_type_test();
 
     // Phase 2: 初始化 QSPI 并读取 JEDEC ID (使用系统时钟的1/2作为SCLK)
     RBL_LOG("[RBL] Starting Phase 2: QSPI initialization...\r\n");

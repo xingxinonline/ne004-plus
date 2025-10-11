@@ -261,7 +261,10 @@ def main():
         print(f"")
         print(f"示例:")
         print(
-            f"  {sys.argv[0]} build ../RBL/GCC/build/s300_rbl_simple.bin build/s300_sbl_minimal.bin build/s300_complete.bin")
+            f"  {sys.argv[0]} build ../../build/Projects/RBL_Minimal/"
+            "s300_rbl_minimal_complete.bin build/s300_sbl_minimal.bin "
+            "build/s300_complete.bin"
+        )
         print(f"  {sys.argv[0]} analyze build/s300_complete.bin")
         return 1
 

@@ -87,8 +87,7 @@ cd Projects/HelloWorld/GCC
 make
 
 # 构建RBL引导程序
-cd ../../RBL
-./build.sh
+cmake --build ../../build --target s300_image
 
 # 构建所有项目
 make -C Projects/HelloWorld/GCC
@@ -101,8 +100,9 @@ make -C Projects/SBL/GCC
 # 使用OpenOCD烧写
 openocd -f s300_openocd.cfg -c "program build/app.elf verify reset exit"
 
-# 使用构建脚本
-./Projects/RBL/build.sh flash
+# 使用CMake目标快速生成并烧录RBL镜像
+cmake --build build --target s300_image
+cmake --build build --target flash_image
 ./Projects/SBL/build.sh flash
 ```
 

@@ -32,9 +32,9 @@ mkdir build && cd build
 cmake -G Ninja ..
 ninja
 
-# 或使用 GNU Make
-cd S300_BSP/Projects/RBL_Minimal/GCC
-make all
+# 或者直接指定目标
+cmake --build . --target s300_image
+cmake --build . --target flash_image
 ```
 
 ## 提交规范

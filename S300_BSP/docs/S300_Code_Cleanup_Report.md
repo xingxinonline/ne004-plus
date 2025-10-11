@@ -120,7 +120,7 @@ s300_download.py 优化：
   - Projects/App_YmodemOTA/GCC/build/
   - Projects/HelloWorld/GCC/build/
   - Projects/SBL/GCC/build/
-  - Projects/RBL/GCC/build/
+  - Projects/RBL_Minimal/GCC/build/ (已迁移到CMake构建体系)
 
 备份文件清理：
 ❌ Projects/SBL/Src/sbl_ota_full.c.backup
@@ -215,7 +215,7 @@ find . -name "build" -type d -exec rm -rf {} +
   - Projects/App_YmodemOTA/GCC/build/
   - Projects/HelloWorld/GCC/build/
   - Projects/SBL/GCC/build/
-  - Projects/RBL/GCC/build/
+  - Projects/RBL_Minimal/GCC/build/ (已迁移到CMake构建体系)
 
 备份文件清理：
 ❌ Projects/SBL/Src/sbl_ota_full.c.backup

@@ -57,8 +57,8 @@ make analyze_complete  # 分析完整系统镜像结构
 
 1. **构建并下载RBL**：
    ```bash
-   cd ../RBL/GCC
-   make s300_image
+   cd ../../build
+   ninja s300_image
    # 使用Flash工具烧录RBL到0x80000000
    ```
 
@@ -66,7 +66,7 @@ make analyze_complete  # 分析完整系统镜像结构
    ```bash
    cd ../SBL_Minimal/tools
    # 等待RBL进入下载模式，然后：
-   ../RBL/tools/download.sh ../SBL_Minimal/GCC/build/s300_sbl_minimal.bin
+   ../RBL_Minimal/tools/download.sh ../SBL_Minimal/GCC/build/s300_sbl_minimal.bin
    ```
 
 3. **复位设备测试跳转**
@@ -115,7 +115,7 @@ Stack Pointer: 0x2000xxxx
 
 1. **串口监控**：
    ```bash
-   cd ../RBL/tools
+   cd ../RBL_Minimal/tools
    ./monitor.py /dev/ttyUSB0
    ```
 

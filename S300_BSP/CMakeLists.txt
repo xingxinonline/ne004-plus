@@ -71,6 +71,8 @@ if(TARGET s300_rbl_minimal)
     add_custom_target(dbg DEPENDS dbg_rbl)
 elseif(TARGET s300_sbl_minimal)
     add_custom_target(dbg DEPENDS dbg_sbl)
+elseif(TARGET s300_display_demo)
+    add_custom_target(dbg DEPENDS dbg_display)
 endif()
 
 # Set the default build type to Release if not specified

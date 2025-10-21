@@ -107,3 +107,14 @@ add_custom_target(dbg_display
     DEPENDS ${TARGET}
     USES_TERMINAL
 )
+
+# Debug target with DSP boot images preloaded
+add_custom_target(dbg_display_dsp
+    COMMENT "Launching GDB for ${TARGET} with DSP boot images (SRAM: 0x20000000) (GDB_PORT=${GDB_PORT})"
+    COMMAND arm-none-eabi-gdb -q
+    -ex "file $<TARGET_FILE:${TARGET}>"
+    -ex "target extended-remote :${GDB_PORT}"
+    -x ${ROOT}/gdbinit.display.dsp.gdb
+    DEPENDS ${TARGET}
+    USES_TERMINAL
+)

@@ -4,11 +4,22 @@
 set(DRIVERS_ROOT ${CMAKE_CURRENT_LIST_DIR})
 
 add_library(s300_video STATIC
-    ${DRIVERS_ROOT}/SoC/MM/video.c
+    ${DRIVERS_ROOT}/SoC/MM/Source/video.c
 )
 
 target_include_directories(s300_video PUBLIC
     ${PROJECT_SOURCE_DIR}/CMSIS/Device/PiMCHIP/S300/Include
     ${PROJECT_SOURCE_DIR}/CMSIS/Core/Include
-    ${DRIVERS_ROOT}/SoC/MM
+    ${DRIVERS_ROOT}/SoC/MM/Include
+)
+
+# Mailbox driver as a reusable static library for demos/tests
+add_library(s300_mailbox STATIC
+    ${DRIVERS_ROOT}/SoC/MAILBOX/Source/mailbox.c
+)
+
+target_include_directories(s300_mailbox PUBLIC
+    ${PROJECT_SOURCE_DIR}/CMSIS/Device/PiMCHIP/S300/Include
+    ${PROJECT_SOURCE_DIR}/CMSIS/Core/Include
+    ${DRIVERS_ROOT}/SoC/MAILBOX/Include
 )

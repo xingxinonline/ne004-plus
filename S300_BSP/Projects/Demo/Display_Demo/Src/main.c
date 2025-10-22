@@ -9,6 +9,10 @@
 #include "lvgl.h"
 #include "uart.h"
 #include "uart_s300.h"
+/* Camera deps */
+#include "gpio.h"
+#include "i2c_soft.h"
+#include "ov5640.h"
 extern const lv_image_dsc_t img_demo; // demo image asset
 extern const lv_image_dsc_t img_icons8_eye_16; // 16x16 eye icon used for both eyes
 
@@ -280,6 +284,75 @@ static void lvgl_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t *
     lv_display_flush_ready(disp);
 }
 
+/* ---------------- OV5640 camera bring-up (before video init) ---------------- */
+/* Assume board wiring: OV5640 reset/powerdown pins on GPIOA15 and GPIOA6 respectively. */
+#ifndef CAM_RST_PIN
+#define CAM_RST_PIN  15u  /* GPIOA15 */
+#endif
+#ifndef CAM_PWDN_PIN
+#define CAM_PWDN_PIN 6u   /* GPIOA6  */
+#endif
+
+static void cam_gpio_init(void)
+{
+    /* Enable GPIO clock and configure pins as output, pull-up */
+    set_cortex_m4_apb1_clock(RCC_CM4_APB1_GPIO, true);
+    gpio_set_function(GPIOA, CAM_RST_PIN, FUNCTION_2);
+    gpio_set_mode(GPIOA, CAM_RST_PIN, GPIO_UP);
+    gpio_set_direction(GPIOA, CAM_RST_PIN, 1);
+    gpio_set_function(GPIOA, CAM_PWDN_PIN, FUNCTION_2);
+    gpio_set_mode(GPIOA, CAM_PWDN_PIN, GPIO_UP);
+    gpio_set_direction(GPIOA, CAM_PWDN_PIN, 1);
+}
+
+static void cam_power_on_sequence(void)
+{
+    /* PWDN high, RST low -> delay -> PWDN low -> delay -> RST high -> delay */
+    gpio_set_data(GPIOA, CAM_RST_PIN, 0);
+    gpio_set_data(GPIOA, CAM_PWDN_PIN, 1);
+    for (volatile uint32_t i = 0; i < 800000u; i++) __asm volatile("nop");
+    gpio_set_data(GPIOA, CAM_PWDN_PIN, 0);
+    for (volatile uint32_t i = 0; i < 800000u; i++) __asm volatile("nop");
+    gpio_set_data(GPIOA, CAM_RST_PIN, 1);
+    for (volatile uint32_t i = 0; i < 2400000u; i++) __asm volatile("nop");
+}
+
+/* Initialize OV5640 via software I2C (I2C1: GPIOA0/A1) to YUYV 720p */
+static int ov5640_preinit(void)
+{
+    i2c_soft_t i2c1;
+    /* Moderate bus speed for robustness */
+    int ret = i2c_soft_init_default_idx(&i2c1, 1, 50000);
+    if (ret) {
+        printf("[S300][DisplayDemo][CAM] i2c init fail %d\r\n", ret);
+        return ret;
+    }
+    cam_gpio_init();
+    cam_power_on_sequence();
+    (void)i2c_soft_bus_recover(&i2c1);
+
+    /* Probe slave address 0x3C/0x3D */
+    uint8_t saddr = 0x3C;
+    int p3c = i2c_soft_probe(&i2c1, 0x3C);
+    int p3d = i2c_soft_probe(&i2c1, 0x3D);
+    if (p3c != 0 && p3d == 0) saddr = 0x3D;
+
+    /* Read chip ID for log */
+    uint8_t idh = 0, idl = 0;
+    (void)i2c_soft_mem_read(&i2c1, saddr, 0x300Au, true, &idh, 1);
+    (void)i2c_soft_mem_read(&i2c1, saddr, 0x300Bu, true, &idl, 1);
+    printf("[S300][DisplayDemo][CAM] OV5640 ID: 0x%02X 0x%02X (addr=0x%02X)\r\n", idh, idl, saddr);
+    int lr = ov5640_set_light(&i2c1, saddr, true);
+    printf("Enable light: %s\n", lr == 0 ? "OK" : "FAIL");
+    /* 简短预览一段时间后自动关闭，避免常亮 */
+    for (volatile uint32_t i = 0; i < 4800000u; ++i) __asm volatile("nop");
+    int lf = ov5640_set_light(&i2c1, saddr, false);
+    printf("Disable light: %s\n", lf == 0 ? "OK" : "FAIL");
+    ret = ov5640_init(&i2c1, saddr, OV5640_FMT_YUV422_YUYV);
+    printf("[S300][DisplayDemo][CAM] ov5640_init ret=%d\r\n", ret);
+    return ret;
+}
+
 int main(void)
 {
     // 板级初始化：时钟 + UART3，printf 可用
@@ -293,7 +366,15 @@ int main(void)
         printf("[S300][DisplayDemo][ERR] SysTick_Config failed!\r\n");
     }
 
-    // 初始化视频子系统（包含 ST77 SPI LCD 序列），此处未使用摄像头，仅演示显示路径
+    rcc_init_mm_pll(8, 400, 0, 3, 2);
+
+    // 在初始化视频前先初始化 OV5640（DVP 摄像头经软 I2C 配置到 YUYV）
+    int cam_ret = ov5640_preinit();
+    if (cam_ret != 0) {
+        printf("[S300][DisplayDemo][WARN] OV5640 init failed (%d), continue to init video for display path only.\r\n", cam_ret);
+    }
+
+    // 初始化视频子系统（包含 ST77 SPI LCD 序列）
     printf("[S300][DisplayDemo] init video...\r\n");
     init_video(EM_DVP, CAMREA_YUV422, C1080X720P);
 

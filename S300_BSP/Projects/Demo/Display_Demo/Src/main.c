@@ -13,6 +13,7 @@
 #include "gpio.h"
 #include "i2c_soft.h"
 #include "ov5640.h"
+#include "mailbox.h"
 extern const lv_image_dsc_t img_demo; // demo image asset
 extern const lv_image_dsc_t img_icons8_eye_16; // 16x16 eye icon used for both eyes
 
@@ -124,6 +125,33 @@ static int32_t eyes_goto_mid_y(int32_t mid_y)
 // 1ms 节拍计时
 static volatile uint32_t g_tick_ms = 0;
 
+/* 将“移动到指定中点并打印详情”的逻辑封装为接口，供串口与邮箱两处共用 */
+static void eyes_move_to_mid_and_log(int32_t target_mid_y, const char *src_tag)
+{
+    int32_t min_mid, max_mid;
+    eyes_mid_limits(&min_mid, &max_mid);
+
+    /* 执行动画重定向，返回实际生效的中点（被范围裁剪后） */
+    int32_t eff = eyes_goto_mid_y(target_mid_y);
+
+    /* 计算目标 top/bot Y 与动画估计时长（与 eyes_goto_mid_y 逻辑保持一致） */
+    int32_t half = g_eye_h / 2;
+    int32_t top_y = (eff - g_eye_spacing) - half;
+    int32_t bot_y = (eff + g_eye_spacing) - half;
+    const uint32_t per_px_ms = 150u;
+    int32_t cur_top_y = g_eye_top ? lv_obj_get_y(g_eye_top) : top_y;
+    int32_t cur_bot_y = g_eye_bot ? lv_obj_get_y(g_eye_bot) : bot_y;
+    uint32_t dy_top = (cur_top_y > top_y) ? (uint32_t)(cur_top_y - top_y) : (uint32_t)(top_y - cur_top_y);
+    uint32_t dy_bot = (cur_bot_y > bot_y) ? (uint32_t)(cur_bot_y - bot_y) : (uint32_t)(bot_y - cur_bot_y);
+    uint32_t t_top_ms = dy_top * per_px_ms;
+    uint32_t t_bot_ms = dy_bot * per_px_ms;
+
+    printf("[S300][MOVE:%s] goto %ld => mid=%ld (range %ld..%ld), top_y=%ld (%lums), bot_y=%ld (%lums)\r\n",
+           (src_tag ? src_tag : "?"),
+           (long)target_mid_y, (long)eff, (long)min_mid, (long)max_mid,
+           (long)top_y, (unsigned long)t_top_ms, (long)bot_y, (unsigned long)t_bot_ms);
+}
+
 void SysTick_Handler(void)
 {
     g_tick_ms++;
@@ -185,21 +213,7 @@ static void uart_echo_poll(void)
                     if (got)
                     {
                         if (neg) val = -val;
-                        int32_t min_mid, max_mid; eyes_mid_limits(&min_mid, &max_mid);
-                        int32_t eff = eyes_goto_mid_y(val);
-               int32_t half = g_eye_h / 2;
-               int32_t top_y = (eff - g_eye_spacing) - half;
-               int32_t bot_y = (eff + g_eye_spacing) - half;
-               /* 计算持续时间用于打印（与eyes_goto_mid_y逻辑一致）：每像素150ms */
-               const uint32_t per_px_ms = 150u;
-               int32_t cur_top_y = lv_obj_get_y(g_eye_top);
-               int32_t cur_bot_y = lv_obj_get_y(g_eye_bot);
-               uint32_t dy_top = (cur_top_y > top_y) ? (uint32_t)(cur_top_y - top_y) : (uint32_t)(top_y - cur_top_y);
-               uint32_t dy_bot = (cur_bot_y > bot_y) ? (uint32_t)(cur_bot_y - bot_y) : (uint32_t)(bot_y - cur_bot_y);
-               uint32_t t_top_ms = dy_top * per_px_ms;
-               uint32_t t_bot_ms = dy_bot * per_px_ms;
-               printf("[S300][CMD] goto %ld => mid=%ld (range %ld..%ld), top_y=%ld (%lums), bot_y=%ld (%lums)\r\n",
-                   (long)val, (long)eff, (long)min_mid, (long)max_mid, (long)top_y, (unsigned long)t_top_ms, (long)bot_y, (unsigned long)t_bot_ms);
+                        eyes_move_to_mid_and_log(val, "UART");
                     }
                     else
                     {
@@ -353,6 +367,19 @@ static int ov5640_preinit(void)
     return ret;
 }
 
+
+static void monitor_mailbox_rx(void)
+{
+    /* 若 DSP->M4 有数据（即 CM4_MAILBOX_BASE 非空），读出并打印 */
+    while (mailbox_sta_empty_flag_is(MAILBOX_BASE, 0) == 0)
+    {
+        uint32_t v = read_mailbox(MAILBOX_BASE);
+        printf("RX[M4]: 0x%08lx\r\n", (unsigned long)v);
+        /* 将邮箱的 32 位值视为 mid_y 指令，触发同样的移动逻辑 */
+        eyes_move_to_mid_and_log((int32_t)v, "MBX");
+    }
+}
+
 int main(void)
 {
     // 板级初始化：时钟 + UART3，printf 可用
@@ -366,7 +393,8 @@ int main(void)
         printf("[S300][DisplayDemo][ERR] SysTick_Config failed!\r\n");
     }
 
-    rcc_init_mm_pll(8, 400, 0, 3, 2);
+    rcc_init_mm_pll(8, 400, 0, 3, 2); /* 100MHz */
+    rcc_init_dsp_pll(8, 400, 0, 2, 1); /* 300MHz */
 
     // 在初始化视频前先初始化 OV5640（DVP 摄像头经软 I2C 配置到 YUYV）
     int cam_ret = ov5640_preinit();
@@ -377,6 +405,23 @@ int main(void)
     // 初始化视频子系统（包含 ST77 SPI LCD 序列）
     printf("[S300][DisplayDemo] init video...\r\n");
     init_video(EM_DVP, CAMREA_YUV422, C1080X720P);
+
+
+    init_mailbox(MAILBOX_BASE, 4, MAILBOX_IRQ_NONE);
+    set_dsp_warm_reset(true);
+
+    write_mailbox(MAILBOX_BASE, 0x5A5A5A5A);
+
+    // /* 测试与DSP通信 */
+    // while (1)
+    // {
+    //     /* UART echo (non-blocking) */
+    //     uart_echo_poll();
+    //     monitor_mailbox_rx();
+    //     /* tiny sleep ~5ms to reduce busy loop */
+    //     uint32_t t0 = millis();
+    //     while ((uint32_t)(millis() - t0) < 5u) { /* spin */ }
+    // }
 
     volatile uint16_t* f0 = (volatile uint16_t*)DISP_RFRAME0_ADDR;
     volatile uint16_t* f1 = (volatile uint16_t*)DISP_RFRAME1_ADDR;
@@ -391,8 +436,8 @@ int main(void)
     const size_t pixels = (size_t)DISP_IMAGE_WIDTH * (size_t)DISP_IMAGE_HEIGHT;
 
     /* Prepare initial frame buffers */
-    fill_buffer(f0, a0, pixels, 0x0000u, 0xFFu); // black
-    fill_buffer(f1, a1, pixels, 0x0000u, 0xFFu); // black
+    fill_buffer(f0, a0, pixels, 0x0000u, 0xAAu); // black
+    fill_buffer(f1, a1, pixels, 0x0000u, 0xAAu); // black
 
     /* Stop presenting during init */
     REG32(REG_F0) = 0u;
@@ -465,6 +510,7 @@ int main(void)
     {
         /* UART echo (non-blocking) */
         uart_echo_poll();
+        monitor_mailbox_rx();
         lv_timer_handler();
         /* tiny sleep ~5ms to reduce busy loop */
         uint32_t t0 = millis();

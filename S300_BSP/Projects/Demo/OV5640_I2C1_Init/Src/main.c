@@ -69,6 +69,7 @@ int main(void)
         printf("i2c init fail %d\n", ret);
         for (;;) __WFI();
     }
+    (*((volatile uint32_t*)(RCC_BASE + 0x0018))) |= 1;
     gpio_init_for_camera();
     camera_power_on_sequence();
     /* 恢复总线并探测 0x3C/0x3D，选择有效地址 */

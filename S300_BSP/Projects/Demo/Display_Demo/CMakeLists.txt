@@ -20,7 +20,7 @@ include_directories(
     ${ROOT}/Drivers/SoC/UART/Include
     ${ROOT}/Drivers/SoC/I2CSoft/Include
     ${ROOT}/Drivers/External/OV5640/Include
-    ${ROOT}/Drivers/SoC/MM/Include
+    ${ROOT}/Drivers/SoC/MM
     ${ROOT}/Boards/generic_evb
 )
 

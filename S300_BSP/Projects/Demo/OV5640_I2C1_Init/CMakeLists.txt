@@ -9,7 +9,6 @@ set(TARGET s300_ov5640_i2c1_init)
 set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ROOT ${PROJECT_DIR}/../../..)
 set(DEVICE_DIR ${ROOT}/CMSIS/Device/PiMCHIP/S300)
-
 # Reuse common SRAM ld script
 set(LD_SCRIPT ${ROOT}/ld/sram.ld)
 
@@ -20,7 +19,6 @@ include_directories(
     ${ROOT}/Drivers/SoC/RCC/Include
     ${ROOT}/Drivers/SoC/GPIO/Include
     ${ROOT}/Drivers/SoC/UART/Include
-    ${ROOT}/Drivers/SoC/MM/Include
     ${ROOT}/Drivers/SoC/I2CSoft/Include
     ${ROOT}/Drivers/External/OV5640/Include
     ${ROOT}/Boards/generic_evb

@@ -15,7 +15,8 @@
 #include "ov5640.h"
 #include "mailbox.h"
 extern const lv_image_dsc_t img_demo; // demo image asset
-extern const lv_image_dsc_t img_icons8_eye_16; // 16x16 eye icon used for both eyes
+extern const lv_image_dsc_t img_yanqiu; // 30x38 eye image asset
+extern const lv_image_dsc_t img_yankuang; // 74x85 eye socket background
 
 /* Animation: set y coordinate */
 static void anim_set_y(void * obj, int32_t v)
@@ -71,16 +72,34 @@ static lv_obj_t * g_eye_bot = NULL;
 static int32_t    g_eye_h = 16;
 static int32_t    g_eye_spacing = 24;         /* distance between eye centers (vertical) */
 static uint32_t   g_anim_time_ms = 2000;      /* default single-trip duration */
+/* Visible heights after 90° rotation: eye -> eye_w, socket -> bg_w */
+static int32_t    g_eye_vis_h = 16;           /* rotated bounding-box height of eye */
+static int32_t    g_socket_vis_h = 16;        /* rotated bounding-box height of socket */
 
 static inline void eyes_mid_limits(int32_t *min_out, int32_t *max_out)
 {
-    const int32_t screen_h = DISP_IMAGE_HEIGHT;
-    const int32_t half = g_eye_h / 2;
-    int32_t mid_min = g_eye_spacing + half;
-    int32_t mid_max = screen_h - (g_eye_spacing + half);
-    if (mid_min > mid_max) { mid_min = mid_max = screen_h / 2; }
-    if (min_out) *min_out = mid_min;
-    if (max_out) *max_out = mid_max;
+        /* Constrain mid_y so that each eye stays inside its socket (rotated 90°).
+             Socket centers are fixed at center_y ± g_eye_spacing. If socket visible height is S
+             and eye visible height is E, then allowed mid_y range is:
+                 mid ∈ [center_y - (S-E)/2, center_y + (S-E)/2]
+             Additionally clamp to screen to be safe. */
+        const int32_t screen_h = DISP_IMAGE_HEIGHT;
+        const int32_t center_y = screen_h / 2;
+        int32_t S = g_socket_vis_h; /* socket visible height after rotation */
+        int32_t E = g_eye_vis_h;    /* eye visible height after rotation    */
+        if (S < E) S = E; /* if socket smaller than eye, fall back to eye height */
+        int32_t margin = (S - E) / 2; /* how far mid can deviate from center */
+        int32_t mid_min = center_y - margin;
+        int32_t mid_max = center_y + margin;
+        /* Screen safety clamp (eye must remain fully on-screen as well) */
+        int32_t half_eye = g_eye_h / 2; /* use object pivot-based placement */
+        int32_t scr_min = g_eye_spacing + half_eye;
+        int32_t scr_max = screen_h - (g_eye_spacing + half_eye);
+        if (mid_min < scr_min) mid_min = scr_min;
+        if (mid_max > scr_max) mid_max = scr_max;
+        if (mid_min > mid_max) { mid_min = mid_max = center_y; }
+        if (min_out) *min_out = mid_min;
+        if (max_out) *max_out = mid_max;
 }
 
 static int32_t eyes_goto_mid_y(int32_t mid_y)
@@ -99,7 +118,7 @@ static int32_t eyes_goto_mid_y(int32_t mid_y)
     int32_t to_y_bot = bot_center_y - half;
 
     /* 动画时长：按像素位移计，每像素150ms */
-    const uint32_t per_px_ms = 150u;
+    const uint32_t per_px_ms = 100u;
     int32_t cur_top_y = lv_obj_get_y(g_eye_top);
     int32_t cur_bot_y = lv_obj_get_y(g_eye_bot);
     uint32_t dy_top = (cur_top_y > to_y_top) ? (uint32_t)(cur_top_y - to_y_top) : (uint32_t)(to_y_top - cur_top_y);
@@ -138,7 +157,7 @@ static void eyes_move_to_mid_and_log(int32_t target_mid_y, const char *src_tag)
     int32_t half = g_eye_h / 2;
     int32_t top_y = (eff - g_eye_spacing) - half;
     int32_t bot_y = (eff + g_eye_spacing) - half;
-    const uint32_t per_px_ms = 150u;
+    const uint32_t per_px_ms = 100u;
     int32_t cur_top_y = g_eye_top ? lv_obj_get_y(g_eye_top) : top_y;
     int32_t cur_bot_y = g_eye_bot ? lv_obj_get_y(g_eye_bot) : bot_y;
     uint32_t dy_top = (cur_top_y > top_y) ? (uint32_t)(cur_top_y - top_y) : (uint32_t)(top_y - cur_top_y);
@@ -435,9 +454,9 @@ int main(void)
 
     const size_t pixels = (size_t)DISP_IMAGE_WIDTH * (size_t)DISP_IMAGE_HEIGHT;
 
-    /* Prepare initial frame buffers */
-    fill_buffer(f0, a0, pixels, 0x0000u, 0xAAu); // black
-    fill_buffer(f1, a1, pixels, 0x0000u, 0xAAu); // black
+    /* Prepare initial frame buffers: white canvas so transparent parts show white, not video */
+    fill_buffer(f0, a0, pixels, 0xFFFFu, 0x88u); // white
+    fill_buffer(f1, a1, pixels, 0xFFFFu, 0x88u); // white
 
     /* Stop presenting during init */
     REG32(REG_F0) = 0u;
@@ -456,6 +475,11 @@ int main(void)
                            LV_DISPLAY_RENDER_MODE_FULL);
     lv_display_set_flush_cb(disp, lvgl_flush_cb);
 
+    /* Make screen background opaque white to ensure alpha areas reveal white canvas */
+    lv_obj_t * scr = lv_screen_active();
+    lv_obj_set_style_bg_color(scr, lv_color_white(), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+
     // /* Simple UI: Title */
     // lv_obj_t * label = lv_label_create(lv_screen_active());
     // lv_label_set_text(label, "LVGL Image Demo");
@@ -464,18 +488,36 @@ int main(void)
     /* Two eyes after 90° rotation: symmetric around horizontal center line, vertical movement */
     const int32_t screen_w = DISP_IMAGE_WIDTH;
     const int32_t screen_h = DISP_IMAGE_HEIGHT;
-    const int32_t eye_w = 16;
-    const int32_t eye_h = 16;
+    const int32_t eye_w = 30;  /* updated to match img_yanqiu width */
+    const int32_t eye_h = 38;  /* updated to match img_yanqiu height */
+    const int32_t bg_w  = 74;  /* eye socket background width */
+    const int32_t bg_h  = 85;  /* eye socket background height */
     const int32_t center_x = screen_w / 2;
     const int32_t center_y = screen_h / 2;
-    const int32_t spacing = 24;      /* vertical distance between eye centers */
+    const int32_t spacing = 39;      /* vertical distance between eye centers */
 
     /* Common base X: center horizontally */
     const int32_t base_x = center_x - eye_w / 2;
+    const int32_t base_x_bg = center_x - bg_w / 2;
+
+    /* Eye socket backgrounds: create first to keep them behind eyes */
+    lv_obj_t * bg_top = lv_image_create(lv_screen_active());
+    lv_image_set_src(bg_top, &img_yankuang);
+    lv_image_set_pivot(bg_top, bg_w / 2, bg_h / 2);
+    lv_image_set_rotation(bg_top, 900);  /* 90 deg clockwise */
+    int32_t base_y_bg_top = (center_y - spacing) - bg_h / 2;
+    lv_obj_set_pos(bg_top, base_x_bg, base_y_bg_top);
+
+    lv_obj_t * bg_bot = lv_image_create(lv_screen_active());
+    lv_image_set_src(bg_bot, &img_yankuang);
+    lv_image_set_pivot(bg_bot, bg_w / 2, bg_h / 2);
+    lv_image_set_rotation(bg_bot, 900);  /* 90 deg clockwise */
+    int32_t base_y_bg_bot = (center_y + spacing) - bg_h / 2;
+    lv_obj_set_pos(bg_bot, base_x_bg, base_y_bg_bot);
 
     /* Top eye */
     lv_obj_t * eye_top = lv_image_create(lv_screen_active());
-    lv_image_set_src(eye_top, &img_icons8_eye_16);
+    lv_image_set_src(eye_top, &img_yanqiu);
     /* rotate clockwise 90 deg around center */
     lv_image_set_pivot(eye_top, eye_w / 2, eye_h / 2);
     lv_image_set_rotation(eye_top, 900);
@@ -484,7 +526,7 @@ int main(void)
 
     /* Bottom eye */
     lv_obj_t * eye_bot = lv_image_create(lv_screen_active());
-    lv_image_set_src(eye_bot, &img_icons8_eye_16);
+    lv_image_set_src(eye_bot, &img_yanqiu);
     /* rotate clockwise 90 deg around center */
     lv_image_set_pivot(eye_bot, eye_w / 2, eye_h / 2);
     lv_image_set_rotation(eye_bot, 900);
@@ -500,6 +542,9 @@ int main(void)
     g_eye_h = eye_h;
     g_eye_spacing = spacing;
     g_anim_time_ms = t_ms;
+    /* after 90° rotation, visible heights equal original widths */
+    g_eye_vis_h = eye_w;
+    g_socket_vis_h = bg_w;
 
     printf("[S300][DisplayDemo] LVGL started.\r\n");
     printf("[S300][DisplayDemo] UART echo enabled on debug UART (CR->CRLF).\r\n");

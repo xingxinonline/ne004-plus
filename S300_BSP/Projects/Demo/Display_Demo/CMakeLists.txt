@@ -19,8 +19,9 @@ include_directories(
     ${ROOT}/Drivers/SoC/GPIO/Include
     ${ROOT}/Drivers/SoC/UART/Include
     ${ROOT}/Drivers/SoC/I2CSoft/Include
+    ${ROOT}/Drivers/SoC/MAILBOX/Include
     ${ROOT}/Drivers/External/OV5640/Include
-    ${ROOT}/Drivers/SoC/MM
+    ${ROOT}/Drivers/SoC/MM/Include
     ${ROOT}/Boards/generic_evb
 )
 
@@ -88,6 +89,7 @@ set_target_properties(${TARGET} PROPERTIES LINK_FLAGS "-T${LD_SCRIPT}")
 # Link libraries
 target_link_libraries(${TARGET}
     s300_video
+    s300_mailbox
     lvgl
 )
 

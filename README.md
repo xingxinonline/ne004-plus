@@ -43,6 +43,11 @@ ninja s300_rbl_minimal
 - [贡献指南](CONTRIBUTING.md)
 - [API 文档](docs/)
 
+## 🎬 效果视频
+
+- 所有演示/效果视频统一存放在 `S300_BSP/docs/media/` 目录。
+- 示例： [演示视频 2025-10-22](S300_BSP/docs/media/41fe888859011a12e97288f477049cbd.mp4)
+
 ## 🤝 贡献
 
 欢迎提交 Issue 和 Pull Request！

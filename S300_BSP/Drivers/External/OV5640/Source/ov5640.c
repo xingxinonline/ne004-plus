@@ -226,19 +226,17 @@ static const uint16_t ov5640_yuv422_cfg[][2] =
 {
     {0x4300, 0x61},//bit[7:4] 0x3 YUV422 ,bit[3:0] 0x0 Output sequence: YUYV
     {0x501F, 0x01},//Format select 0x01 ISP  RGB , 0x00 ISP YUV422
-    {0x3035, 0x81},//PLL
-    {0x3036, 168},//PLL
+    {0x3035, 0x41},//PLL
+    {0x3036, 0x8C},//PLL
     {0x3C07, 0x07},//light meter 1 threshold L
-    {0x3820, 0x41},
-    //{5 ,0x3820, 0x46},//Sensor flip , ISP flip;Bit[2]: ISP vflip  Bit[1]: Sensor vflip
-    {0x3821, 0x00},//Timing Control Bit[2]: ISP mirror Bit[1]: Sensor mirror
+    {0x3820, 0x41},//Sensor flip , ISP flip;Bit[2]: ISP vflip  Bit[1]: Sensor vflip
+    {0x3821, 0x01},//Timing Control Bit[2]: ISP mirror Bit[1]: Sensor mirror
     {0x3814, 0x31},//image windowing registers 0x3800-0x3813  timing control registers 0x3800-0x3821
     {0x3815, 0x31},
     {0x3800, 0x00},//图像窗口 Bit[7:4]: Debug mode Bit[3:0]: X address start[11:8]  -0
-    { 0x3801, 0x00}, //图像窗口 Bit[7:0]: X address start[7:0]
-    { 0x3802, 0x00}, //图像窗口 Bit[7:4]: Debug mode Bit[3:0]: Y address start[11:8]  -0
-    { 0x3803, 0xFA},
-    //{12,0x3803, 0x00},//图像窗口 Bit[7:0]: Y address start[7:0]
+    {0x3801, 0x00}, //图像窗口 Bit[7:0]: X address start[7:0]
+    {0x3802, 0x00}, //图像窗口 Bit[7:4]: Debug mode Bit[3:0]: Y address start[11:8]  -0
+    {0x3803, 0xFA}, //图像窗口 Bit[7:0]: Y address start[7:0]
     {0x3804, 0x0A}, //图像窗口 xend      Bit[7:4]: Debug mode Bit[3:0]: X address end[11:8]   -2623
     {0x3805, 0x3F}, //图像窗口 xend      Bit[7:0]: X address end[7:0]
     {0x3806, 0x06}, //图像窗口 yend      Bit[7:3]: Debug mode Bit[2:0]: Y address end[10:8]  -1705
@@ -248,13 +246,9 @@ static const uint16_t ov5640_yuv422_cfg[][2] =
     {0x380A, (SENSOR_IMAGE_HEIGHT >> 8) & 0xff}, //图像窗口 after scaling      y    Bit[7:3]: Debug mode Bit[2:0]: DVP output vertical height[10:8]  -1440    0x140 320
     {0x380B, SENSOR_IMAGE_HEIGHT & 0xff}, //图像窗口 after scaling      y    Bit[7:0]: DVP output vertical height[7:0]
     {0x380C, 0x07},
-    //{21,0x380C, 0x05},//
     {0x380D, 0x64},
-    //{22,0x380D, 0xF8},//
     {0x380E, 0x02},
-    //{23,0x380E, 0x03},
     {0x380F, 0xE4},
-    //{24,0x380F, 0x84},
     {0x3813, 0x04}, //图像窗口  Y offeset     Bit[7:0]: Vertical offset[7:0]
     {0x3618, 0x00},
     {0x3612, 0x29},
@@ -267,14 +261,13 @@ static const uint16_t ov5640_yuv422_cfg[][2] =
     {0x4004, 0x02},
     {0x3002, 0x1C},
     {0x3006, 0xC3},
-    {0x4713, 0x03},
+    {0x4713, 0x04},
     {0x4407, 0x04},
     {0x460B, 0x37},
     {0x460C, 0x20},
     {0x4837, 0x16},
-    {0x3824, 0x04},
+    {0x3824, 0x02},
     {0x5001, 0x83},
-    //{43,0x5001, 0xA3},
     {0x3503, 0x00}
 };
 

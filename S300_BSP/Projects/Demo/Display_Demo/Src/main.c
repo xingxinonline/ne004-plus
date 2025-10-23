@@ -118,7 +118,7 @@ static int32_t eyes_goto_mid_y(int32_t mid_y)
     int32_t to_y_bot = bot_center_y - half;
 
     /* 动画时长：按像素位移计，每像素150ms */
-    const uint32_t per_px_ms = 100u;
+    const uint32_t per_px_ms = 50u;
     int32_t cur_top_y = lv_obj_get_y(g_eye_top);
     int32_t cur_bot_y = lv_obj_get_y(g_eye_bot);
     uint32_t dy_top = (cur_top_y > to_y_top) ? (uint32_t)(cur_top_y - to_y_top) : (uint32_t)(to_y_top - cur_top_y);
@@ -157,7 +157,7 @@ static void eyes_move_to_mid_and_log(int32_t target_mid_y, const char *src_tag)
     int32_t half = g_eye_h / 2;
     int32_t top_y = (eff - g_eye_spacing) - half;
     int32_t bot_y = (eff + g_eye_spacing) - half;
-    const uint32_t per_px_ms = 100u;
+    const uint32_t per_px_ms = 50u;
     int32_t cur_top_y = g_eye_top ? lv_obj_get_y(g_eye_top) : top_y;
     int32_t cur_bot_y = g_eye_bot ? lv_obj_get_y(g_eye_bot) : bot_y;
     uint32_t dy_top = (cur_top_y > top_y) ? (uint32_t)(cur_top_y - top_y) : (uint32_t)(top_y - cur_top_y);
@@ -181,6 +181,31 @@ void SysTick_Handler(void)
 static inline uint32_t millis(void)
 {
     return g_tick_ms;
+}
+
+/* Count display flushes for FPS measurement */
+static volatile uint32_t g_flush_cnt = 0;
+
+/* FPS timer callback: update label text based on flush count */
+static void fps_timer_cb(lv_timer_t *t)
+{
+    lv_obj_t *label = (lv_obj_t*)lv_timer_get_user_data(t);
+    static uint32_t last_ms = 0;
+    static uint32_t last_cnt = 0;
+    uint32_t now = millis();
+    if (last_ms == 0) { last_ms = now; last_cnt = g_flush_cnt; return; }
+    uint32_t dt = now - last_ms;
+    if (dt < 250) return; /* update not too often */
+    uint32_t dc = g_flush_cnt - last_cnt;
+    /* Compute FPS with one decimal using integer math */
+    uint32_t fps10 = (dt > 0) ? (uint32_t)((dc * 10000u + (dt/2)) / dt) : 0u; /* x10 */
+    uint32_t ip = fps10 / 10u;
+    uint32_t fp = fps10 % 10u;
+    char buf[24];
+    snprintf(buf, sizeof(buf), "FPS: %lu.%lu", (unsigned long)ip, (unsigned long)fp);
+    lv_label_set_text(label, buf);
+    last_ms = now;
+    last_cnt = g_flush_cnt;
 }
 
 /* ---------------- UART echo (RX polling on debug UART) ---------------- */
@@ -287,33 +312,37 @@ static void lvgl_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t *
     /* FULL frame double-buffering: px_map points to the active draw buffer (s_f0 or s_f1) */
     (void)area;
 
-    /* Present exactly one buffer as ready */
-    REG32(REG_F0) = 0u;
-    REG32(REG_F1) = 0u;
+    // /* Present exactly one buffer as ready */
+    // REG32(REG_F0) = 0u;
+    // REG32(REG_F1) = 0u;
 
     uintptr_t p = (uintptr_t)px_map;
     if (p == (uintptr_t)s_f0)
     {
         REG32(REG_F0) = 1u;
+        while ((REG32(REG_F0) & 0x1u) != 0u) { /* wait until accepted */ }
     }
     else if (p == (uintptr_t)s_f1)
     {
         REG32(REG_F1) = 1u;
+        while ((REG32(REG_F1) & 0x1u) != 0u) { /* wait until accepted */ }
     }
-    else
-    {
-        /* Unexpected pointer: as a fallback copy to f0 and present */
-        const int32_t w = area->x2 - area->x1 + 1;
-        const int32_t h = area->y2 - area->y1 + 1;
-        for (int32_t y = 0; y < h; ++y)
-        {
-            memcpy((void*)&s_f0[(area->y1 + y) * DISP_IMAGE_WIDTH + area->x1],
-                   (const void*)&((const uint16_t*)px_map)[y * w],
-                   (size_t)w * sizeof(uint16_t));
-        }
-        REG32(REG_F0) = 1u;
-    }
+    // else
+    // {
+    //     /* Unexpected pointer: as a fallback copy to f0 and present */
+    //     const int32_t w = area->x2 - area->x1 + 1;
+    //     const int32_t h = area->y2 - area->y1 + 1;
+    //     for (int32_t y = 0; y < h; ++y)
+    //     {
+    //         memcpy((void*)&s_f0[(area->y1 + y) * DISP_IMAGE_WIDTH + area->x1],
+    //                (const void*)&((const uint16_t*)px_map)[y * w],
+    //                (size_t)w * sizeof(uint16_t));
+    //     }
+    //     REG32(REG_F0) = 1u;
+    // }
 
+    /* one frame flushed */
+    g_flush_cnt++;
     lv_display_flush_ready(disp);
 }
 
@@ -424,8 +453,12 @@ int main(void)
     // 初始化视频子系统（包含 ST77 SPI LCD 序列）
     printf("[S300][DisplayDemo] init video...\r\n");
     init_video(EM_DVP, CAMREA_YUV422, C1080X720P);
-
-
+    // while (1)
+    // {
+    //     /* code */;
+    // }
+    
+ 
     init_mailbox(MAILBOX_BASE, 4, MAILBOX_IRQ_NONE);
     set_dsp_warm_reset(true);
 
@@ -480,10 +513,22 @@ int main(void)
     lv_obj_set_style_bg_color(scr, lv_color_white(), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
-    // /* Simple UI: Title */
-    // lv_obj_t * label = lv_label_create(lv_screen_active());
-    // lv_label_set_text(label, "LVGL Image Demo");
-    // lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 4);
+    /* FPS label: red, rotated 90°, center pivot, 12pt font */
+    // lv_obj_t * fps_label = lv_label_create(lv_screen_active());
+    // lv_label_set_text(fps_label, "FPS: --.-");
+    // extern const lv_font_t lv_font_montserrat_12;
+    // lv_obj_set_style_text_font(fps_label, &lv_font_montserrat_12, 0);
+    // lv_obj_set_style_text_color(fps_label, lv_color_hex(0xFF0000), 0);
+    // /* Reserve transform box to avoid clipping after rotation (fixed safe size) */
+    // // lv_obj_set_style_transform_width(fps_label, 80, 0);
+    // // lv_obj_set_style_transform_height(fps_label, 20, 0);
+    // // lv_obj_set_style_transform_pivot_x(fps_label, 40, 0);
+    // // lv_obj_set_style_transform_pivot_y(fps_label, 10, 0);
+    // // lv_obj_set_style_transform_angle(fps_label, 900, 0); /* 90deg */
+    // lv_obj_align(fps_label, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    /* FPS timer: update text based on flush count every 500ms */
+    // (void)lv_timer_create(fps_timer_cb, 500, fps_label);
 
     /* Two eyes after 90° rotation: symmetric around horizontal center line, vertical movement */
     const int32_t screen_w = DISP_IMAGE_WIDTH;
@@ -494,7 +539,7 @@ int main(void)
     const int32_t bg_h  = 85;  /* eye socket background height */
     const int32_t center_x = screen_w / 2;
     const int32_t center_y = screen_h / 2;
-    const int32_t spacing = 39;      /* vertical distance between eye centers */
+    const int32_t spacing = 37;      /* vertical distance between eye centers */
 
     /* Common base X: center horizontally */
     const int32_t base_x = center_x - eye_w / 2;
@@ -554,7 +599,7 @@ int main(void)
     while (1)
     {
         /* UART echo (non-blocking) */
-        uart_echo_poll();
+        // uart_echo_poll();
         monitor_mailbox_rx();
         lv_timer_handler();
         /* tiny sleep ~5ms to reduce busy loop */

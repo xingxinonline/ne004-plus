@@ -19,11 +19,15 @@
 
 /* Features */
 #define LV_USE_LOG            1
-#define LV_LOG_LEVEL          LV_LOG_LEVEL_INFO
+#define LV_LOG_LEVEL          LV_LOG_LEVEL_TRACE
 
 /* Default display resolution (can be overridden at runtime) */
 #define LV_HOR_RES_MAX        128
 #define LV_VER_RES_MAX        160
+
+/* Fonts: enable 12px Montserrat and set as default */
+#define LV_FONT_MONTSERRAT_12 1
+#define LV_FONT_DEFAULT       &lv_font_montserrat_12
 
 /* Memory: use static internal heap (optional). We'll provide buffers from BSP. */
 #define LV_USE_STDLIB_MALLOC  LV_STDLIB_BUILTIN

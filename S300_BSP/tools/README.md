@@ -48,11 +48,13 @@ pip install -e .
 ## 📖 使用方法
 
 ### 扫描设备
+
 ```bash
 uv run s300-reset scan
 ```
 
 ### 触发下载模式
+
 ```bash
 # 串口方式
 uv run s300-reset serial /dev/ttyUSB0 --mode download
@@ -65,6 +67,7 @@ uv run s300-reset double-reset /dev/ttyUSB0 --interval 1.5
 ```
 
 ### 查看状态
+
 ```bash
 uv run s300-reset status /dev/ttyUSB0
 ```
@@ -72,33 +75,35 @@ uv run s300-reset status /dev/ttyUSB0
 ## 🛠️ 开发
 
 ### 安装开发依赖
+
 ```bash
 uv sync --dev
 ```
 
 ### 代码格式化
+
 ```bash
 uv run black .
 ```
 
 ### 类型检查
+
 ```bash
 uv run mypy .
 ```
 
 ### 运行测试
+
 ```bash
 uv run pytest
 ```
 
 ## 📁 项目结构
 
-```
+```text
 tools/
 ├── pyproject.toml          # uv/pip 配置
 ├── s300_reset_tool.py      # 主要工具脚本
 ├── s300_ota_tool.py        # OTA 工具脚本
-├── install.ps1             # Windows 安装脚本
-├── install.sh              # Linux/macOS 安装脚本
 └── README.md               # 本文件
 ```

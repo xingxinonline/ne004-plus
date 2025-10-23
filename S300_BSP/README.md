@@ -43,12 +43,11 @@ S300_BSP/
 │   ├── SBL/                       # Secondary Bootloader (OTA管理)
 │   ├── App_YmodemOTA/             # OTA演示应用
 │   └── Demo/                      # 各种演示项目 (I2S/QSPI/DMA等)
-├── tools/                          # 🐍 现代Python工具
+├── tools/                          # 🐍 Python 工具（复位/OTA/串口监视）
 │   ├── s300_reset_tool.py         # 软件复位工具
 │   ├── s300_ota_tool.py           # OTA升级工具
-│   ├── pyproject.toml             # uv包管理配置
-│   ├── install.sh                 # Linux/macOS安装脚本
-│   └── install.ps1                # Windows/Scoop安装脚本
+│   ├── serial_monitor.py          # 串口监视工具
+│   └── pyproject.toml             # uv/pip 包管理配置
 ├── ld/                            # 🔗 链接脚本
 └── Boards/                        # 🔌 开发板配置
 ```

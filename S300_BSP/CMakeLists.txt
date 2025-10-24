@@ -83,6 +83,8 @@ elseif(TARGET s300_dma_ram2ram)
     add_custom_target(dbg DEPENDS dbg_dma_ram2ram)
 elseif(TARGET s300_dma_interrupt)
     add_custom_target(dbg DEPENDS dbg_dma_interrupt)
+elseif(TARGET s300_freertos_shell)
+    add_custom_target(dbg DEPENDS dbg_freertos_shell)
 endif()
 
 # Set the default build type to Release if not specified

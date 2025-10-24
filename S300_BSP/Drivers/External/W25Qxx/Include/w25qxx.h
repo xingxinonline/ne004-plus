@@ -36,7 +36,6 @@ int w25qxx_read_sfdp(uint32_t addr, uint8_t *buf, uint32_t len);
 /* 基础操作 */
 int w25qxx_read(uint32_t addr, void *buf, uint32_t len);
 int w25qxx_write_page(uint32_t addr, const void *buf, uint32_t len); /* len<=256, 不跨页 */
-int w25qxx_write_page_quad(uint32_t addr, const void *buf, uint32_t len); /* 四线写入 */
 int w25qxx_erase_4k(uint32_t addr);
 int w25qxx_erase_32k(uint32_t addr);
 int w25qxx_erase_64k(uint32_t addr);
@@ -44,7 +43,9 @@ int w25qxx_chip_erase(void);
 
 /* 高级功能 */
 int w25qxx_software_reset(void);
-int w25qxx_configure_read_mode(int mode); /* 0=单线, 1=四线输出, 2=四线I/O */
+/* XIP 1-4-4 模式控制（执行/线性映射使用），普通数据读写仍走 STIG 1-1-1 */
+int w25qxx_enter_xip_144(unsigned dummy_cycles, uint8_t mode_bits);
+void w25qxx_exit_xip(void);
 
 #ifdef __cplusplus
 }

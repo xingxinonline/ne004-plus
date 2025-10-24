@@ -19,6 +19,9 @@ qspi_cadence_t g_qspi =
     .block_4k_units = 16u /* 16 x 4KB = 64KB */
 };
 
+/* 当前 STIG 命令使用的地址字节数（3B/4B）在驱动内部跟踪，避免接口膨胀 */
+static uint8_t s_addr_bytes = 3u;
+
 static bool s_qspi_verbose = true;
 void qspi_set_verbose(bool enable)
 {
@@ -64,18 +67,7 @@ static void qspi_set_mode_cpol0_cpha0(void)
     REG32(g_qspi.reg, CQSPI_REG_CONFIG) = v;
 }
 
-static void qspi_exit_xip(void)
-{
-    /* Disable DIRECT and XIP_IMM, disable mode bit usage */
-    uint32_t cfg = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
-    cfg &= ~(CQSPI_CFG_DIRECT | CQSPI_CFG_XIP_IMM);
-    REG32(g_qspi.reg, CQSPI_REG_CONFIG) = cfg;
-    /* clear any mode bit config */
-    uint32_t rd = REG32(g_qspi.reg, CQSPI_REG_RD_INSTR);
-    rd &= ~(1u << CQSPI_RD_MODE_EN_LSB);
-    REG32(g_qspi.reg, CQSPI_REG_RD_INSTR) = rd;
-    REG32(g_qspi.reg, CQSPI_REG_MODE_BIT) = 0u;
-}
+/* 统一使用公开的 qspi_exit_xip_mode()，该实现会同步清理 XIP_NEXT/IMM 与 MODE bits。 */
 
 static void qspi_set_cs(unsigned cs)
 {
@@ -290,8 +282,9 @@ void qspi_cadence_init(uint32_t ref_clk_hz, uint32_t sclk_hz)
     qspi_set_baud(ref_clk_hz, g_qspi.sclk_hz);
     qspi_set_cs(0);
     /* size: 24-bit addr default, page 256, block 64KB */
+    s_addr_bytes = 3u;
     uint32_t size = 0u;
-    size |= ((3u - 1u) & CQSPI_SIZE_ADDR_MASK) << CQSPI_SIZE_ADDR_LSB; /* 3-bytes addr default */
+    size |= (((uint32_t)s_addr_bytes - 1u) & CQSPI_SIZE_ADDR_MASK) << CQSPI_SIZE_ADDR_LSB; /* 3-bytes addr default */
     size |= (g_qspi.page_size << CQSPI_SIZE_PAGE_LSB);
     size |= (g_qspi.block_4k_units << CQSPI_SIZE_BLOCK_LSB);
     REG32(g_qspi.reg, CQSPI_REG_SIZE) = size;
@@ -302,8 +295,11 @@ void qspi_cadence_init(uint32_t ref_clk_hz, uint32_t sclk_hz)
     uint32_t default_read_reg = (1u << (CQSPI_SRAM_DEPTH_N - 1u)); /* 0x80 for N=8 */
     REG32(g_qspi.reg, CQSPI_REG_SRAMPARTITION) = default_read_reg & CQSPI_SRAM_PARTITION_MASK;
     REG32(g_qspi.reg, CQSPI_REG_IRQMASK) = 0u;
-    /* ensure we are not in XIP/direct mode left by bootrom */
-    qspi_exit_xip();
+    /* ensure we are not in XIP/direct mode left by bootrom (清除 XIP_NEXT/IMM、MODE bits) */
+    qspi_exit_xip_mode();
+    /* 清理可能由BootROM遗留的扩展指令配置，避免影响 STIG 读写（如 RDID 异常） */
+    REG32(g_qspi.reg, CQSPI_REG_OPCODE_EXT_LOWER) = 0u;
+    REG32(g_qspi.reg, CQSPI_REG_OPCODE_EXT_UPPER) = 0u;
     
     /* 根据频率动态调整时序参数 */
     uint32_t tshsl, tchsh, tslch, tsd2d;
@@ -582,7 +578,7 @@ int qspi_erase_4k(uint32_t addr)
     REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = addr;
     uint32_t cmd = (W25Q_CMD_SE_4K << CQSPI_CMDCTRL_OPCODE_LSB) |
                    (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
-                   (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB);
+                   ((((uint32_t)s_addr_bytes - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB);
     rc = qspi_exec_cmd(cmd);
     if (rc) return rc;
     return qspi_wait_ready(4000u);
@@ -595,7 +591,7 @@ int qspi_erase_64k(uint32_t addr)
     REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = addr;
     uint32_t cmd = (W25Q_CMD_BE_64K << CQSPI_CMDCTRL_OPCODE_LSB) |
                    (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
-                   (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB);
+                   ((((uint32_t)s_addr_bytes - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB);
     rc = qspi_exec_cmd(cmd);
     if (rc) return rc;
     return qspi_wait_ready(8000u);
@@ -608,7 +604,7 @@ int qspi_erase_32k(uint32_t addr)
     REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = addr;
     uint32_t cmd = (W25Q_CMD_BE_32K << CQSPI_CMDCTRL_OPCODE_LSB) |
                    (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
-                   (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB);
+                   ((((uint32_t)s_addr_bytes - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB);
     rc = qspi_exec_cmd(cmd);
     if (rc) return rc;
     return qspi_wait_ready(6000u); /* 32KB erase timeout */
@@ -671,156 +667,118 @@ int qspi_set_quad_enable(bool enable)
 
 int qspi_set_address_mode_4byte(bool enable)
 {
-    /* 大于 16MiB 才需要 4B；此处按调用者需求发命令 */
+    /* 大于 16MiB 才需要 4B；此处按调用者需求发命令，并同步控制器地址字节设置 */
     uint32_t cmd = ((enable ? W25Q_CMD_EN4B : W25Q_CMD_EX4B) << CQSPI_CMDCTRL_OPCODE_LSB);
-    return qspi_exec_cmd(cmd);
-}
-
-void qspi_configure_quad_read(bool enable)
-{
-    uint32_t rd = REG32(g_qspi.reg, CQSPI_REG_RD_INSTR);
-    
-    if (enable)
-    {
-        /* 配置 Fast Read Quad Output (0x6B): 指令单线，地址单线，数据四线 (1-1-4 模式) */
-        rd &= ~((0xFFu) << CQSPI_RD_OPCODE_LSB);
-        rd |= (W25Q_CMD_QUAD_READ << CQSPI_RD_OPCODE_LSB);
-        
-        /* 配置传输宽度：指令单线，地址单线，数据四线 */
-        rd &= ~((0xFu) << CQSPI_RD_TYPE_INSTR_LSB);
-        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB);
-        
-        rd &= ~((0xFu) << CQSPI_RD_TYPE_ADDR_LSB);
-        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_ADDR_LSB);  /* 修复：地址应该是单线 */
-        
-        rd &= ~((0xFu) << CQSPI_RD_TYPE_DATA_LSB);
-        rd |= (CQSPI_INST_TYPE_QUAD << CQSPI_RD_TYPE_DATA_LSB);
-        
-        /* 设置dummy cycles（0x6B命令需要8个dummy cycles） */
-        rd &= ~(0x1Fu << CQSPI_RD_DUMMY_LSB);
-        rd |= (8u << CQSPI_RD_DUMMY_LSB);
-    }
-    else
-    {
-        /* 恢复单线 Fast Read (0x0B) */
-        rd &= ~((0xFFu) << CQSPI_RD_OPCODE_LSB);
-        rd |= (W25Q_CMD_FAST << CQSPI_RD_OPCODE_LSB);
-        
-        /* 配置传输宽度：全部单线 */
-        rd &= ~((0xFu) << CQSPI_RD_TYPE_INSTR_LSB);
-        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB);
-        
-        rd &= ~((0xFu) << CQSPI_RD_TYPE_ADDR_LSB);
-        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_ADDR_LSB);
-        
-        rd &= ~((0xFu) << CQSPI_RD_TYPE_DATA_LSB);
-        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_DATA_LSB);
-        
-        /* 设置dummy cycles（0x0B命令需要8个dummy cycles） */
-        rd &= ~(0x1Fu << CQSPI_RD_DUMMY_LSB);
-        rd |= (8u << CQSPI_RD_DUMMY_LSB);
-    }
-    
-    REG32(g_qspi.reg, CQSPI_REG_RD_INSTR) = rd;
-}
-
-void qspi_configure_quad_io_read(bool enable)
-{
-    uint32_t rd = REG32(g_qspi.reg, CQSPI_REG_RD_INSTR);
-    
-    if (enable)
-    {
-        /* 配置 Fast Read Quad I/O (0xEB): 指令单线，地址四线，数据四线 (1-4-4 模式) */
-        rd &= ~((0xFFu) << CQSPI_RD_OPCODE_LSB);
-        rd |= (W25Q_CMD_QUAD_FAST << CQSPI_RD_OPCODE_LSB);  /* 0xEB */
-        
-        /* 配置传输宽度：指令单线，地址四线，数据四线 */
-        rd &= ~((0xFu) << CQSPI_RD_TYPE_INSTR_LSB);
-        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB);
-        
-        rd &= ~((0xFu) << CQSPI_RD_TYPE_ADDR_LSB);
-        rd |= (CQSPI_INST_TYPE_QUAD << CQSPI_RD_TYPE_ADDR_LSB);  /* 地址四线 */
-        
-        rd &= ~((0xFu) << CQSPI_RD_TYPE_DATA_LSB);
-        rd |= (CQSPI_INST_TYPE_QUAD << CQSPI_RD_TYPE_DATA_LSB);
-        
-        /* 启用 Mode bits */
-        rd |= (1u << CQSPI_RD_MODE_EN_LSB);
-        
-        /* 设置dummy cycles（0xEB命令通常需要4个dummy cycles） */
-        rd &= ~(0x1Fu << CQSPI_RD_DUMMY_LSB);
-        rd |= (4u << CQSPI_RD_DUMMY_LSB);
-        
-        if (s_qspi_verbose)
-            printf("[QSPI] Configured Fast Read Quad I/O (0xEB, 1-4-4 mode)\n");
-    }
-    else
-    {
-        /* 恢复单线 Fast Read (0x0B) */
-        rd &= ~((0xFFu) << CQSPI_RD_OPCODE_LSB);
-        rd |= (W25Q_CMD_FAST << CQSPI_RD_OPCODE_LSB);
-        
-        /* 配置传输宽度：全部单线 */
-        rd &= ~((0xFu) << CQSPI_RD_TYPE_INSTR_LSB);
-        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB);
-        
-        rd &= ~((0xFu) << CQSPI_RD_TYPE_ADDR_LSB);
-        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_ADDR_LSB);
-        
-        rd &= ~((0xFu) << CQSPI_RD_TYPE_DATA_LSB);
-        rd |= (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_DATA_LSB);
-        
-        /* 禁用 Mode bits */
-        rd &= ~(1u << CQSPI_RD_MODE_EN_LSB);
-        
-        /* 设置dummy cycles（0x0B命令需要8个dummy cycles） */
-        rd &= ~(0x1Fu << CQSPI_RD_DUMMY_LSB);
-        rd |= (8u << CQSPI_RD_DUMMY_LSB);
-        
-        if (s_qspi_verbose)
-            printf("[QSPI] Configured Fast Read (0x0B, 1-1-1 mode)\n");
-    }
-    
-    REG32(g_qspi.reg, CQSPI_REG_RD_INSTR) = rd;
-}
-
-int qspi_read_quad_stig(uint32_t addr, void *buf, uint32_t len)
-{
-    if (!buf || len == 0u) return -1;
-    
-    /* 专用的Quad STIG读取，使用Quad Output Fast Read (0x6B) 
-     * 注意：0xEB需要地址也是Quad模式，硬件可能不支持，改用0x6B */
-    uint8_t *pp = (uint8_t *)buf;
-    uint32_t a = addr;
-    uint32_t remain = len;
-    
-    while (remain)
-    {
-        uint32_t chunk = (remain > 8u) ? 8u : remain;
-        REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = a;
-        uint32_t cmd = (W25Q_CMD_QUAD_READ << CQSPI_CMDCTRL_OPCODE_LSB) |
-                       (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
-                       (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
-                       (1u << CQSPI_CMDCTRL_RD_EN_LSB) |
-                       (((chunk - 1u) & CQSPI_CMDCTRL_RD_BYTES_MASK) << CQSPI_CMDCTRL_RD_BYTES_LSB) |
-                       (8u << CQSPI_CMDCTRL_DUMMY_LSB);  /* 8 dummy cycles for 0x6B */
-        
-        int r = qspi_exec_cmd(cmd);
-        if (r) return r;
-        
-        uint32_t low = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATALOWER);
-        uint32_t take = (chunk > 4u) ? 4u : chunk;
-        memcpy(pp, &low, take);
-        if (chunk > 4u)
-        {
-            uint32_t up = REG32(g_qspi.reg, CQSPI_REG_CMDREADDATAUPPER);
-            memcpy(pp + 4u, &up, chunk - 4u);
-        }
-        pp += chunk;
-        a += chunk;
-        remain -= chunk;
-    }
+    int rc = qspi_exec_cmd(cmd);
+    if (rc) return rc;
+    s_addr_bytes = enable ? 4u : 3u;
+    uint32_t size = REG32(g_qspi.reg, CQSPI_REG_SIZE);
+    size &= ~(CQSPI_SIZE_ADDR_MASK << CQSPI_SIZE_ADDR_LSB);
+    size |= (((uint32_t)s_addr_bytes - 1u) & CQSPI_SIZE_ADDR_MASK) << CQSPI_SIZE_ADDR_LSB;
+    REG32(g_qspi.reg, CQSPI_REG_SIZE) = size;
     return 0;
+}
+
+/* 进入 XIP 1-4-4 模式：使用 0xEB 指令，指令单线、地址四线、数据四线，启用 mode bits */
+int qspi_enter_xip_144(unsigned addr_bytes, unsigned dummy_cycles, uint8_t mode_bits)
+{
+    if (addr_bytes < 3u) addr_bytes = 3u;
+    if (addr_bytes > 4u) addr_bytes = 4u;
+    if (dummy_cycles == 0u) dummy_cycles = 4u; /* 参考 RBL：0xEB 常用 4 个 dummy */
+    if (mode_bits == 0u) mode_bits = 0x20u;      /* 参考 RBL：Mode bits 常用 0x20 */
+
+    /* 1) 退出 DIRECT，保持 ENABLE 置位，确保可安全配置 */
+    uint32_t cfg = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
+    cfg &= ~CQSPI_CFG_DIRECT;
+    cfg |= CQSPI_CFG_ENABLE;
+    REG32(g_qspi.reg, CQSPI_REG_CONFIG) = cfg;
+    if (qspi_wait_idle() != 0) return -1;
+
+    /* 设置地址字节数到 SIZE 寄存器，影响 DIRECT/XIP 地址阶段 */
+    uint32_t size = REG32(g_qspi.reg, CQSPI_REG_SIZE);
+    size &= ~(CQSPI_SIZE_ADDR_MASK << CQSPI_SIZE_ADDR_LSB);
+    size |= (((addr_bytes - 1u) & CQSPI_SIZE_ADDR_MASK) << CQSPI_SIZE_ADDR_LSB);
+    REG32(g_qspi.reg, CQSPI_REG_SIZE) = size;
+
+    /* 2) 配置 1-4-4 读取特性，设置 0xEB opcode，启用 mode bits 与 dummy */
+    uint32_t rd = ((uint32_t)W25Q_CMD_QUAD_FAST << CQSPI_RD_OPCODE_LSB) |
+                  ((uint32_t)CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB) |
+                  ((uint32_t)CQSPI_INST_TYPE_QUAD   << CQSPI_RD_TYPE_ADDR_LSB)  |
+                  ((uint32_t)CQSPI_INST_TYPE_QUAD   << CQSPI_RD_TYPE_DATA_LSB)  |
+                  ((uint32_t)(dummy_cycles & CQSPI_RD_DUMMY_MASK) << CQSPI_RD_DUMMY_LSB) |
+                  (1u << CQSPI_RD_MODE_EN_LSB);
+    REG32(g_qspi.reg, CQSPI_REG_RD_INSTR) = rd;
+    if (qspi_wait_idle() != 0) return -1;
+
+    /* 配置 Mode bits（多数器件可用 0x00） */
+    uint32_t mode = REG32(g_qspi.reg, CQSPI_REG_MODE_BIT);
+    mode &= ~CQSPI_MODE_BITS_MASK;
+    mode |= ((uint32_t)(mode_bits & CQSPI_MODE_BITS_MASK));
+    REG32(g_qspi.reg, CQSPI_REG_MODE_BIT) = mode;
+    if (qspi_wait_idle() != 0) return -1;
+
+    /* 3) 通过 XIP_NEXT 进入 XIP，再打开 DIRECT 使能 AHB 访问 */
+    cfg = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
+    cfg &= ~CQSPI_CFG_XIP_IMM;
+    cfg |= CQSPI_CFG_XIP_NEXT;
+    REG32(g_qspi.reg, CQSPI_REG_CONFIG) = cfg;
+    if (qspi_wait_idle() != 0) return -1;
+
+    cfg |= CQSPI_CFG_DIRECT;
+    REG32(g_qspi.reg, CQSPI_REG_CONFIG) = cfg;
+    if (qspi_wait_idle() != 0) return -1;
+
+    return 0;
+}
+
+void qspi_exit_xip_mode(void)
+{
+    /* 参考 RBL：先关 DIRECT 且清 XIP_NEXT/IMM，再清 MODE bits，必要时再开 DIRECT */
+    uint32_t cfg = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
+
+    cfg &= ~(CQSPI_CFG_DIRECT | CQSPI_CFG_XIP_NEXT | CQSPI_CFG_XIP_IMM);
+    REG32(g_qspi.reg, CQSPI_REG_CONFIG) = cfg;
+    (void)qspi_wait_idle();
+
+    uint32_t mode = REG32(g_qspi.reg, CQSPI_REG_MODE_BIT);
+    mode &= ~CQSPI_MODE_BITS_MASK;
+    REG32(g_qspi.reg, CQSPI_REG_MODE_BIT) = mode;
+    (void)qspi_wait_idle();
+
+    cfg &= ~(CQSPI_CFG_XIP_NEXT | CQSPI_CFG_XIP_IMM);
+
+    /* 退出连续读取模式：发送 mode bits FFh 以确保 M4=1 */
+    uint32_t rd_temp = ((uint32_t)W25Q_CMD_QUAD_FAST << CQSPI_RD_OPCODE_LSB) |
+                       ((uint32_t)CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB) |
+                       ((uint32_t)CQSPI_INST_TYPE_QUAD << CQSPI_RD_TYPE_ADDR_LSB) |
+                       ((uint32_t)CQSPI_INST_TYPE_QUAD << CQSPI_RD_TYPE_DATA_LSB) |
+                       (4u << CQSPI_RD_DUMMY_LSB) |
+                       (1u << CQSPI_RD_MODE_EN_LSB);
+    REG32(g_qspi.reg, CQSPI_REG_RD_INSTR) = rd_temp;
+    mode |= 0xFFu;
+    REG32(g_qspi.reg, CQSPI_REG_MODE_BIT) = mode;
+    (void)qspi_wait_idle();
+    /* 发送 dummy Quad Fast Read 命令来应用 mode bits FFh */
+    uint32_t cmd = (W25Q_CMD_QUAD_FAST << CQSPI_CMDCTRL_OPCODE_LSB) |
+                   (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
+                   (2u << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
+                   (1u << CQSPI_CMDCTRL_RD_EN_LSB) |
+                   (0u << CQSPI_CMDCTRL_RD_BYTES_LSB) |
+                   (4u << CQSPI_CMDCTRL_DUMMY_LSB);
+    REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = 0x0;
+    (void)qspi_exec_cmd(cmd);
+    /* 清除 mode bits */
+    mode &= ~CQSPI_MODE_BITS_MASK;
+    REG32(g_qspi.reg, CQSPI_REG_MODE_BIT) = mode;
+    (void)qspi_wait_idle();
+
+    /* 恢复全单线的 RD_INSTR 且将 opcode 设为标准 0x03 READ，dummy=0，关闭 mode 位。
+       这样在需要时可以通过一次 DIRECT AHB 读让器件看到 READ 指令并退出内部连续读状态。 */
+    uint32_t rd = ((uint32_t)W25Q_CMD_READ << CQSPI_RD_OPCODE_LSB) |
+                  ((uint32_t)CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB) |
+                  ((uint32_t)CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_ADDR_LSB)  |
+                  ((uint32_t)CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_DATA_LSB);
+    REG32(g_qspi.reg, CQSPI_REG_RD_INSTR) = rd;
 }
 
 int qspi_page_program(uint32_t addr, const void *buf, uint32_t len)
@@ -873,9 +831,9 @@ int qspi_page_program(uint32_t addr, const void *buf, uint32_t len)
         }
         REG32(g_qspi.reg, CQSPI_REG_CMDWRITEDATALOWER) = lower;
         REG32(g_qspi.reg, CQSPI_REG_CMDWRITEDATAUPPER) = upper;
-        uint32_t cmd = (W25Q_CMD_PP << CQSPI_CMDCTRL_OPCODE_LSB) |
-                       (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
-                       (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
+    uint32_t cmd = (W25Q_CMD_PP << CQSPI_CMDCTRL_OPCODE_LSB) |
+               (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
+               ((((uint32_t)s_addr_bytes - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
                        (1u << CQSPI_CMDCTRL_WR_EN_LSB) |
                        (((chunk - 1u) & CQSPI_CMDCTRL_WR_BYTES_MASK) << CQSPI_CMDCTRL_WR_BYTES_LSB);
         rc = qspi_exec_cmd(cmd);
@@ -899,9 +857,9 @@ int qspi_read(uint32_t addr, void *buf, uint32_t len)
     {
         uint32_t chunk = (remain > 8u) ? 8u : remain;  /* 保持8字节以确保稳定性 */
         REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = a;
-        uint32_t cmd = (W25Q_CMD_FAST << CQSPI_CMDCTRL_OPCODE_LSB) |
-                       (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
-                       (((3u - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
+    uint32_t cmd = (W25Q_CMD_FAST << CQSPI_CMDCTRL_OPCODE_LSB) |
+               (1u << CQSPI_CMDCTRL_ADDR_EN_LSB) |
+               ((((uint32_t)s_addr_bytes - 1u) & CQSPI_CMDCTRL_ADD_BYTES_MASK) << CQSPI_CMDCTRL_ADD_BYTES_LSB) |
                        (1u << CQSPI_CMDCTRL_RD_EN_LSB) |
                        (((chunk - 1u) & CQSPI_CMDCTRL_RD_BYTES_MASK) << CQSPI_CMDCTRL_RD_BYTES_LSB) |
                        (8u << CQSPI_CMDCTRL_DUMMY_LSB);  /* 8 dummy cycles for FAST READ */

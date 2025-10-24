@@ -1,3 +1,4 @@
 ## Git LFS tracking for large binary assets
 # DSP boot images (required by dbg_display_dsp)
+# Moved under Display_Demo for clearer ownership
 # Optionally track media videos (uncomment if needed)

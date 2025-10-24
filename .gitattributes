@@ -1,7 +1,6 @@
 ## Git LFS tracking for large binary assets
-
 # DSP boot images (required by dbg_display_dsp)
 S300_BSP/Projects/DSP_Images/*.bin filter=lfs diff=lfs merge=lfs -text
-
 # Optionally track media videos (uncomment if needed)
 # S300_BSP/docs/media/* filter=lfs diff=lfs merge=lfs -text
+*.mp4 filter=lfs diff=lfs merge=lfs -text

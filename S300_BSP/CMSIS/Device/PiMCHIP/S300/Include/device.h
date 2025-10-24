@@ -5,7 +5,9 @@
 
 #define __CM4_REV                 0x0001U
 #define __MPU_PRESENT             1U
-#define __NVIC_PRIO_BITS          4U
+/* S300 implements 3 priority bits in NVIC (0..7). Keep CMSIS in sync to avoid
+ * FreeRTOS port assertions on priority bit detection. */
+#define __NVIC_PRIO_BITS          3U
 #define __Vendor_SysTickConfig    0U
 #define __FPU_PRESENT             1U
 

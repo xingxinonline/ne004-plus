@@ -455,7 +455,6 @@ int qspi_read_unique_id(uint8_t *uid, uint32_t len);
 int qspi_read_sfdp(uint32_t addr, uint8_t *buf, uint32_t len);
 int qspi_read(uint32_t addr, void *buf, uint32_t len);
 int qspi_page_program(uint32_t addr, const void *buf, uint32_t len);
-int qspi_page_program_quad(uint32_t addr, const void *buf, uint32_t len);
 int qspi_erase_4k(uint32_t addr);
 int qspi_erase_32k(uint32_t addr);
 int qspi_erase_64k(uint32_t addr);
@@ -467,9 +466,10 @@ int qspi_wait_ready(uint32_t timeout_ms);
 /* Feature helpers */
 int qspi_set_quad_enable(bool enable);
 int qspi_set_address_mode_4byte(bool enable);
-void qspi_configure_quad_read(bool enable);
-void qspi_configure_quad_io_read(bool enable);
-int qspi_read_quad_stig(uint32_t addr, void *buf, uint32_t len);
+/* XIP 1-4-4 配置：将控制器设置为以 0xEB 指令 1-4-4 连续读进入 XIP，
+ * addr_bytes 取 3 或 4；dummy_cycles 常用 6~8；mode_bits 常用 0x00。*/
+int qspi_enter_xip_144(unsigned addr_bytes, unsigned dummy_cycles, uint8_t mode_bits);
+void qspi_exit_xip_mode(void);
 
 /* Debug helpers */
 void qspi_dump_regs(const char *tag);
@@ -484,10 +484,8 @@ int qspi_set_sram_partition(uint32_t read_locations);
 void qspi_get_sram_partition(uint32_t *read_locations, uint32_t *write_locations);
 
 /* Generic STIG helpers (support <=8B direct or Memory Bank for 16..512B) */
-int qspi_stig_read_ex(uint8_t opcode, uint32_t addr, unsigned addr_bytes,
-                      unsigned dummy_cycles, void *rx, uint32_t rx_len);
-int qspi_stig_write_ex(uint8_t opcode, uint32_t addr, unsigned addr_bytes,
-                       unsigned dummy_cycles, const void *tx, uint32_t tx_len);
+int qspi_stig_read_ex(uint8_t opcode, uint32_t addr, unsigned addr_bytes, unsigned dummy_cycles, void *rx, uint32_t rx_len);
+int qspi_stig_write_ex(uint8_t opcode, uint32_t addr, unsigned addr_bytes, unsigned dummy_cycles, const void *tx, uint32_t tx_len);
 
 #ifdef __cplusplus
 }

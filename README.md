@@ -119,7 +119,7 @@ uv run python S300_BSP/tools/s300_download.py -f S300_BSP/build/Projects/Demo/Di
 # 基本调试（不加载 DSP boot 镜像）
 ninja -C S300_BSP/build dbg_display
 
-# 含 DSP boot 镜像预加载（需要准备 DSP_Images/ 下的 bin）
+# 含 DSP boot 镜像预加载（需要准备 Display_Demo/DSP_Images/ 下的 bin）
 ninja -C S300_BSP/build dbg_display_dsp
 ```
 
@@ -132,9 +132,9 @@ ninja -C S300_BSP/build dbg_display_dsp
 
 - 连接到 `:3333` 的 GDB 服务器并复位/停机 Cortex-M4 内核
 - `load` ELF 至 SRAM（0x20000000），设置 SP/PC 与 VTOR
-- 可选加载 DSP 引导镜像（`Projects/DSP_Images/`）
+- 可选加载 DSP 引导镜像（`Projects/Demo/Display_Demo/DSP_Images/`）
 
-> DSP 引导镜像的放置与分发方式详见 `S300_BSP/Projects/DSP_Images/README.md`（推荐使用 Git LFS 或压缩包离线分发）。
+> DSP 引导镜像的放置与分发方式详见 `S300_BSP/Projects/Demo/Display_Demo/DSP_Images/README.md`（推荐使用 Git LFS 或压缩包离线分发）。
 
 ### 常见问题（FAQ）
 

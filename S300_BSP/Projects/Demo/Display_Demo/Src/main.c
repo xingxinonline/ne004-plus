@@ -1238,7 +1238,7 @@ int main(void)
     // (void)lv_timer_create(mem_log_timer_cb, 2000, NULL);
 
      /* Two eyes (no runtime rotation): symmetric around horizontal center line, vertical movement */
-     g_eye_spacing = 37;      /* vertical distance between eye centers */
+     g_eye_spacing = 38;      /* vertical distance between eye centers */
      g_anim_time_ms = 2000;
      /* Build UI */
      eyes_ui_create();

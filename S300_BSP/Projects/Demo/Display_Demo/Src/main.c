@@ -697,7 +697,7 @@ typedef struct FaceRect_ {
 
 /* Require continuous face presence before considering it valid (debounce) */
 #ifndef FACE_PRESENCE_CONFIRM_MS
-#define FACE_PRESENCE_CONFIRM_MS 500u
+#define FACE_PRESENCE_CONFIRM_MS 200u
 #endif
 /* Optional: verbose logs for presence/confirm state */
 #ifndef FACE_DEBUG_CONFIRM
@@ -1200,8 +1200,8 @@ int main(void)
     const size_t pixels = (size_t)DISP_IMAGE_WIDTH * (size_t)DISP_IMAGE_HEIGHT;
 
     /* Prepare initial frame buffers: white canvas so transparent parts show white, not video */
-    fill_buffer(f0, a0, pixels, 0xFFFFu, 0x88u); // white
-    fill_buffer(f1, a1, pixels, 0xFFFFu, 0x88u); // white
+    fill_buffer(f0, a0, pixels, 0xFFFFu, 0xAAu); // white
+    fill_buffer(f1, a1, pixels, 0xFFFFu, 0xAAu); // white
 
     /* Stop presenting during init */
     REG32(REG_F0) = 0u;

@@ -22,9 +22,17 @@ int w25qxx_init(w25qxx_info_t *info, bool want_quad, bool want_4byte_addr)
         info->size_bytes = (1u << id[2]);
     }
 
-    /* 若 0x9F 可疑，再复位一次并重试 RDID，仍异常则 0x90 回退 */
+    /* 若 0x9F 可疑（更鲁棒的判定：非 Winbond(0xEF) 或 容量码不在常见区间(0x14..0x26)），
+       则复位并重读；仍异常则回退到 0x90 Manufacturer/Device ID。 */
+    bool suspicious = false;
+    if ((info->manuf_id != 0xEFu) || !(info->capacity >= 0x14 && info->capacity <= 0x26))
+        suspicious = true;
+    /* 也将明显错误值视为可疑（历史兼容） */
     if ((info->manuf_id == 0x00u || info->manuf_id == 0xFFu || info->manuf_id == 0x80u) ||
         (info->capacity == 0x00u || info->capacity == 0xFFu))
+        suspicious = true;
+
+    if (suspicious)
     {
         (void)qspi_software_reset();
         uint8_t id2[3] = {0};
@@ -38,8 +46,8 @@ int w25qxx_init(w25qxx_info_t *info, bool want_quad, bool want_4byte_addr)
                     info->size_bytes = (1u << id2[2]);
             }
         }
-        if ((info->manuf_id == 0x00u || info->manuf_id == 0xFFu || info->manuf_id == 0x80u) ||
-            (info->capacity == 0x00u || info->capacity == 0xFFu))
+        /* 再判断一次是否仍可疑（非 Winbond 或 容量码越界） */
+        if ((info->manuf_id != 0xEFu) || !(info->capacity >= 0x14 && info->capacity <= 0x26))
         {
             uint8_t mfg = 0, dev = 0;
             if (qspi_read_manufacturer_device_id(&mfg, &dev) == 0) {

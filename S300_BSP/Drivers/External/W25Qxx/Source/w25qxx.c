@@ -1,6 +1,7 @@
 #include "w25qxx.h"
 #include "qspi_cadence.h"
 #include <string.h>
+#include <stdio.h>
 
 int w25qxx_init(w25qxx_info_t *info, bool want_quad, bool want_4byte_addr)
 {
@@ -62,6 +63,9 @@ int w25qxx_init(w25qxx_info_t *info, bool want_quad, bool want_4byte_addr)
             }
         }
     }
+
+    /* 打印 JEDEC ID（与 OpenOCD 风格一致） */
+    printf("s300_qspi: JEDEC ID %02x %02x %02x\n", info->manuf_id, info->memory_type, info->capacity);
 
     /* 如仍无法确定容量，尝试读取 SFDP（仅在目标器件支持时可用）
        这里做一个轻量判定：只读取 SFDP 头并不深入解析 BFPT，以后可完善 */

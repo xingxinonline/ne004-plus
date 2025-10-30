@@ -137,6 +137,92 @@ static void qspi_readdata_capture(unsigned delay)
     REG32(g_qspi.reg, CQSPI_REG_RD_DATA_CAPTURE) = v;
 }
 
+/* ---- Timing helpers (keep logic centralized and readable) ---- */
+typedef struct {
+    uint32_t tshsl;
+    uint32_t tchsh;
+    uint32_t tslch;
+    uint32_t tsd2d;
+    uint32_t capture_delay;
+} qspi_timing_cfg_t;
+
+static inline void qspi_compute_timing_cfg(uint32_t sclk_hz, qspi_timing_cfg_t *out)
+{
+    /* 根据频率动态调整时序参数（阈值与原逻辑一致） */
+    if (sclk_hz >= 96000000u)
+    {
+        /* 高频 (>=96MHz): 更保守的时序 */
+        out->tshsl = 255u;
+        out->tchsh = 50u;
+        out->tslch = 50u;
+        out->tsd2d = 255u;
+        out->capture_delay = 3u;
+    }
+    else if (sclk_hz >= 48000000u)
+    {
+        /* 中高频 (48-96MHz): 适中时序 */
+        out->tshsl = 200u;
+        out->tchsh = 30u;
+        out->tslch = 30u;
+        out->tsd2d = 200u;
+        out->capture_delay = 2u;
+    }
+    else if (sclk_hz >= 24000000u)
+    {
+        /* 中频 (24-48MHz): 标准时序 */
+        out->tshsl = 150u;
+        out->tchsh = 20u;
+        out->tslch = 20u;
+        out->tsd2d = 150u;
+        out->capture_delay = 1u;
+    }
+    else
+    {
+        /* 低频 (<24MHz): 最小时序 */
+        out->tshsl = 100u;
+        out->tchsh = 10u;
+        out->tslch = 10u;
+        out->tsd2d = 100u;
+        out->capture_delay = 0u; /* 可旁路（见后续特例修正） */
+    }
+}
+
+static inline void qspi_apply_delay_regs(const qspi_timing_cfg_t *cfg)
+{
+    REG32(g_qspi.reg, CQSPI_REG_DELAY) =
+        (cfg->tshsl << CQSPI_DELAY_TSHSL_LSB) |
+        (cfg->tchsh << CQSPI_DELAY_TCHSH_LSB) |
+        (cfg->tslch << CQSPI_DELAY_TSLCH_LSB) |
+        (cfg->tsd2d << CQSPI_DELAY_TSD2D_LSB);
+    qspi_readdata_capture(cfg->capture_delay);
+}
+
+static inline bool qspi_is_low_ref_half_rate(uint32_t ref_clk_hz, uint32_t sclk_hz)
+{
+    if (ref_clk_hz > 24000000u) return false;
+    uint32_t half = ref_clk_hz / 2u;
+    return (sclk_hz >= half);
+}
+
+static inline void qspi_apply_low_ref_half_rate_adjustment(void)
+{
+    /*
+     * 在低参考时钟（如 24MHz）且目标 SCLK 接近 ref/2（即分频=0）场景下，
+     * 提高采样稳定性：
+     * - 至少使用 2 个采样延时（关闭 BYPASS）
+     * - 切换采样沿（SAMPLE_EDGE=1）
+     * - 发送方向增加 1 个 TX 延时
+     */
+    uint32_t cap = REG32(g_qspi.reg, CQSPI_REG_RD_DATA_CAPTURE);
+    cap |= CQSPI_RD_CAPTURE_SAMPLE_EDGE;
+    cap &= ~(CQSPI_RD_CAPTURE_TX_DELAY_MASK << CQSPI_RD_CAPTURE_TX_DELAY_LSB);
+    cap |= (1u << CQSPI_RD_CAPTURE_TX_DELAY_LSB);
+    cap &= ~(CQSPI_RD_CAPTURE_DELAY_MASK << CQSPI_RD_CAPTURE_DELAY_LSB);
+    cap |= ((2u & CQSPI_RD_CAPTURE_DELAY_MASK) << CQSPI_RD_CAPTURE_DELAY_LSB);
+    cap &= ~CQSPI_RD_CAPTURE_BYPASS;
+    REG32(g_qspi.reg, CQSPI_REG_RD_DATA_CAPTURE) = cap;
+}
+
 static inline int qspi_wait_stig_done(uint32_t timeout)
 {
     for (uint32_t t = 0; t < timeout; ++t)
@@ -301,46 +387,17 @@ void qspi_cadence_init(uint32_t ref_clk_hz, uint32_t sclk_hz)
     REG32(g_qspi.reg, CQSPI_REG_OPCODE_EXT_LOWER) = 0u;
     REG32(g_qspi.reg, CQSPI_REG_OPCODE_EXT_UPPER) = 0u;
     
-    /* 根据频率动态调整时序参数 */
-    uint32_t tshsl, tchsh, tslch, tsd2d;
-    uint32_t capture_delay;
-    
-    if (g_qspi.sclk_hz >= 80000000u) {
-        /* 高频 (>=80MHz): 更保守的时序 */
-        tshsl = 255u;    /* 最大CS高时间 */
-        tchsh = 50u;     /* CS保持时间 */
-        tslch = 50u;     /* CS建立时间 */
-        tsd2d = 255u;    /* 数据切换延时 */
-        capture_delay = 3u;  /* 更大的捕获延时 */
-    } else if (g_qspi.sclk_hz >= 50000000u) {
-        /* 中高频 (50-80MHz): 适中时序 */
-        tshsl = 200u;
-        tchsh = 30u;
-        tslch = 30u;
-        tsd2d = 200u;
-        capture_delay = 2u;
-    } else if (g_qspi.sclk_hz >= 25000000u) {
-        /* 中频 (25-50MHz): 标准时序 */
-        tshsl = 150u;
-        tchsh = 20u;
-        tslch = 20u;
-        tsd2d = 150u;
-        capture_delay = 1u;
-    } else {
-        /* 低频 (<25MHz): 最小时序 */
-        tshsl = 100u;
-        tchsh = 10u;
-        tslch = 10u;
-        tsd2d = 100u;
-        capture_delay = 0u;  /* 可以旁路 */
-    }
-    
-    REG32(g_qspi.reg, CQSPI_REG_DELAY) =
-        (tshsl << CQSPI_DELAY_TSHSL_LSB) |
-        (tchsh << CQSPI_DELAY_TCHSH_LSB) |
-        (tslch << CQSPI_DELAY_TSLCH_LSB) |
-        (tsd2d << CQSPI_DELAY_TSD2D_LSB);
-    qspi_readdata_capture(capture_delay);
+    /* 1) 计算并应用基础时序 */
+    qspi_timing_cfg_t tc;
+    qspi_compute_timing_cfg(g_qspi.sclk_hz, &tc);
+    /* 若低参考频率且接近 ref/2，至少确保 capture_delay>=1（关闭 BYPASS） */
+    if (qspi_is_low_ref_half_rate(ref_clk_hz, g_qspi.sclk_hz) && tc.capture_delay < 1u)
+        tc.capture_delay = 1u;
+    qspi_apply_delay_regs(&tc);
+
+    /* 2) 低参考频率 + ref/2 档位的额外稳健性增强（采样沿/延时/TX_DELAY） */
+    if (qspi_is_low_ref_half_rate(ref_clk_hz, g_qspi.sclk_hz))
+        qspi_apply_low_ref_half_rate_adjustment();
     /* instruction bus widths single-single-single */
     uint32_t rd = (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_INSTR_LSB) |
                   (CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_ADDR_LSB)  |
@@ -354,6 +411,23 @@ void qspi_cadence_init(uint32_t ref_clk_hz, uint32_t sclk_hz)
     cfg &= ~CQSPI_CFG_DIRECT;  /* 确保关闭 DIRECT 模式 */
     REG32(g_qspi.reg, CQSPI_REG_CONFIG) = cfg;
     qspi_enable(true);
+}
+
+uint32_t qspi_get_baud_raw(void)
+{
+    /* 读取 CONFIG 寄存器 BAUD 字段（4bit），编码为 raw=div，SCLK=ref/(2*(raw+1)) */
+    uint32_t cfg = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
+    uint32_t raw = (cfg >> CQSPI_CFG_BAUD_LSB) & CQSPI_CFG_BAUD_MASK;
+    return raw;
+}
+
+uint32_t qspi_get_actual_sclk_hz(void)
+{
+    uint32_t raw = qspi_get_baud_raw();
+    uint32_t denom = 2u * (raw + 1u);
+    if (denom == 0u) denom = 2u;
+    if (g_qspi.ref_clk_hz == 0u) return 0u;
+    return g_qspi.ref_clk_hz / denom;
 }
 
 int qspi_read_id(uint8_t *id, uint32_t len)

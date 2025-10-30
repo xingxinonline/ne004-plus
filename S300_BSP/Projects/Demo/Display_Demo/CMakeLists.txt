@@ -24,6 +24,7 @@ include_directories(
     ${ROOT}/Drivers/External/OV5640/Include
     ${ROOT}/Drivers/SoC/MM/Include
     ${ROOT}/Boards/generic_evb
+    ${PROJECT_DIR}/Inc
 )
 
 # Integrate LVGL v9.4 (online via FetchContent or offline via local path)
@@ -76,6 +77,12 @@ set(SRCS
     ${ROOT}/Drivers/SoC/I2CSoft/Source/i2c_soft.c
     ${ROOT}/Drivers/External/OV5640/Source/ov5640.c
     ${PROJECT_DIR}/Src/main.c
+    ${PROJECT_DIR}/Src/ui_display.c
+    ${PROJECT_DIR}/Src/eyes.c
+    ${PROJECT_DIR}/Src/camera_ov5640.c
+    ${PROJECT_DIR}/Src/face_tracker.c
+    ${PROJECT_DIR}/Src/uart_cmd.c
+    ${PROJECT_DIR}/Src/display_demo_app.c
 )
 
 # Auto-include all generated image assets

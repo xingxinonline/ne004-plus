@@ -28,6 +28,9 @@ void qspi_set_verbose(bool enable)
     s_qspi_verbose = enable;
 }
 
+/* Forward declaration for detailed mode dump */
+static void qspi_dump_modes(const char *tag);
+
 static inline void qspi_enable(bool en)
 {
     uint32_t v = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
@@ -241,12 +244,17 @@ int qspi_stig_read_ex(uint8_t opcode, uint32_t addr, unsigned addr_bytes,
     if (addr_bytes > 4u) return -1;
     if (qspi_wait_idle() != 0) return -1;
 
+    /* 详细打印 STIG READ 参数与路径选择（<=8B 直读 / MemoryBank） */
+    printf("s300_qspi: STIG READ op=0x%02X addr=0x%08lX addr_bytes=%u dummy=%u len=%lu\n",
+           (unsigned)opcode, (unsigned long)addr, (unsigned)addr_bytes, (unsigned)dummy_cycles, (unsigned long)rx_len);
+
     /* If need >8B, use STIG memory bank */
     uint8_t *dst = (uint8_t *)rx;
     uint32_t remain = rx_len;
 
     if (remain <= 8u)
     {
+        printf("s300_qspi: STIG READ path=direct (<=8B)\n");
         REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = addr;
         uint32_t cmd = ((uint32_t)opcode << CQSPI_CMDCTRL_OPCODE_LSB) |
                        ((addr_bytes ? 1u : 0u) << CQSPI_CMDCTRL_ADDR_EN_LSB) |
@@ -268,6 +276,8 @@ int qspi_stig_read_ex(uint8_t opcode, uint32_t addr, unsigned addr_bytes,
     }
 
     /* Use Memory Bank */
+    printf("s300_qspi: STIG READ path=mem-bank (len=%lu bank_max=%u)\n",
+        (unsigned long)remain, (unsigned)CQSPI_STIG_MEM_BANK_MAX_BYTES);
     REG32(g_qspi.reg, CQSPI_REG_CMDADDRESS) = addr;
     uint32_t cmd = ((uint32_t)opcode << CQSPI_CMDCTRL_OPCODE_LSB) |
                    ((addr_bytes ? 1u : 0u) << CQSPI_CMDCTRL_ADDR_EN_LSB) |
@@ -327,6 +337,9 @@ int qspi_stig_write_ex(uint8_t opcode, uint32_t addr, unsigned addr_bytes,
     if (addr_bytes > 4u) return -1;
     if (tx_len && !tx) return -1;
     if (qspi_wait_idle() != 0) return -1;
+
+    printf("s300_qspi: STIG WRITE op=0x%02X addr=0x%08lX addr_bytes=%u dummy=%u len=%lu\n",
+           (unsigned)opcode, (unsigned long)addr, (unsigned)addr_bytes, (unsigned)dummy_cycles, (unsigned long)tx_len);
 
     uint32_t lower = 0u, upper = 0u;
     if (tx_len)
@@ -762,6 +775,8 @@ int qspi_enter_xip_144(unsigned addr_bytes, unsigned dummy_cycles, uint8_t mode_
     if (mode_bits == 0u) mode_bits = 0x20u;      /* 参考 RBL：Mode bits 常用 0x20 */
 
     /* 1) 退出 DIRECT，保持 ENABLE 置位，确保可安全配置 */
+    printf("s300_qspi: enter XIP 1-4-4 (addr_bytes=%u, dummy=%u, mode=0x%02X)\n",
+        (unsigned)addr_bytes, (unsigned)dummy_cycles, (unsigned)mode_bits);
     uint32_t cfg = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
     cfg &= ~CQSPI_CFG_DIRECT;
     cfg |= CQSPI_CFG_ENABLE;
@@ -802,12 +817,34 @@ int qspi_enter_xip_144(unsigned addr_bytes, unsigned dummy_cycles, uint8_t mode_
     REG32(g_qspi.reg, CQSPI_REG_CONFIG) = cfg;
     if (qspi_wait_idle() != 0) return -1;
 
+    /* 打印进入 XIP 后的关键信息：CFG/REMAP/MODE/RD_INSTR/BAUD/SCLK */
+    {
+        uint32_t cfg_now = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
+        uint32_t remap   = REG32(g_qspi.reg, CQSPI_REG_REMAP);
+        uint32_t modev   = REG32(g_qspi.reg, CQSPI_REG_MODE_BIT);
+        uint32_t rdins   = REG32(g_qspi.reg, CQSPI_REG_RD_INSTR);
+        uint32_t sizev   = REG32(g_qspi.reg, CQSPI_REG_SIZE);
+        uint32_t addr_sz = ((sizev >> CQSPI_SIZE_ADDR_LSB) & CQSPI_SIZE_ADDR_MASK) + 1u;
+        uint32_t baud    = qspi_get_baud_raw();
+        uint32_t sclk    = qspi_get_actual_sclk_hz();
+        printf("s300_qspi: XIP entered (CFG=0x%08lX, REMAP=0x%08lX, MODE=0x%08lX, RD_INSTR=0x%08lX)\n",
+               (unsigned long)cfg_now, (unsigned long)remap, (unsigned long)modev, (unsigned long)rdins);
+        printf("s300_qspi: AHB=0x%08lX, addr_bytes=%lu, BAUD=%lu (SCLK=%lu Hz)\n",
+               (unsigned long)(uintptr_t)g_qspi.ahb,
+               (unsigned long)addr_sz, (unsigned long)baud, (unsigned long)sclk);
+        qspi_dump_modes("after-enter-xip");
+    }
     return 0;
 }
 
 void qspi_exit_xip_mode(void)
 {
     /* 参考 RBL：先关 DIRECT 且清 XIP_NEXT/IMM，再清 MODE bits，必要时再开 DIRECT */
+    uint32_t cfg_before = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
+    uint32_t mode_before = REG32(g_qspi.reg, CQSPI_REG_MODE_BIT);
+    uint32_t rdins_before = REG32(g_qspi.reg, CQSPI_REG_RD_INSTR);
+    printf("s300_qspi: exit XIP begin (CFG=0x%08lX, MODE=0x%08lX, RD_INSTR=0x%08lX)\n",
+           (unsigned long)cfg_before, (unsigned long)mode_before, (unsigned long)rdins_before);
     uint32_t cfg = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
 
     cfg &= ~(CQSPI_CFG_DIRECT | CQSPI_CFG_XIP_NEXT | CQSPI_CFG_XIP_IMM);
@@ -853,39 +890,28 @@ void qspi_exit_xip_mode(void)
                   ((uint32_t)CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_ADDR_LSB)  |
                   ((uint32_t)CQSPI_INST_TYPE_SINGLE << CQSPI_RD_TYPE_DATA_LSB);
     REG32(g_qspi.reg, CQSPI_REG_RD_INSTR) = rd;
+
+    /* 打印退出后的关键寄存器状态 */
+    {
+        uint32_t cfg_now = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
+        uint32_t modev   = REG32(g_qspi.reg, CQSPI_REG_MODE_BIT);
+        uint32_t rdins   = REG32(g_qspi.reg, CQSPI_REG_RD_INSTR);
+        printf("s300_qspi: XIP exited  (CFG=0x%08lX, MODE=0x%08lX, RD_INSTR=0x%08lX)\n",
+               (unsigned long)cfg_now, (unsigned long)modev, (unsigned long)rdins);
+        qspi_dump_modes("after-exit-xip");
+    }
 }
 
 int qspi_page_program(uint32_t addr, const void *buf, uint32_t len)
 {
     if (!buf || len == 0u) return -1;
     if (len > g_qspi.page_size) len = g_qspi.page_size;
-    int rc = qspi_wren();
-    if (rc) return rc;
-    if (s_qspi_verbose)
-    {
-        uint8_t s1_dbg = 0;
-        (void)qspi_read_status(&s1_dbg, NULL, NULL);
-        printf("[QSPI] After WREN SR1=%02X (WEL=%u)\n", s1_dbg, (unsigned)(!!(s1_dbg & 0x02u)));
+    if (s_qspi_verbose) {
+        qspi_dump_modes("before-page-program");
+        printf("s300_qspi: PAGE PROGRAM addr=0x%08lX len=%lu (page_size=%lu)\n",
+               (unsigned long)addr, (unsigned long)len, (unsigned long)g_qspi.page_size);
     }
-    /* Ensure WEL is set before proceeding */
-    {
-        uint8_t s1 = 0;
-        (void)qspi_read_status(&s1, NULL, NULL);
-        if ((s1 & 0x02u) == 0u)
-        {
-            rc = qspi_wren();
-            if (rc) return rc;
-            (void)qspi_read_status(&s1, NULL, NULL);
-            if (s_qspi_verbose)
-                printf("[QSPI] Retry WREN SR1=%02X (WEL=%u)\n", s1, (unsigned)(!!(s1 & 0x02u)));
-            if ((s1 & 0x02u) == 0u)
-            {
-                if (s_qspi_verbose)
-                    printf("[QSPI] WEL not set before program (SR1=%02X)\n", s1);
-                return -2;
-            }
-        }
-    }
+    int rc;
     
     /* 使用 STIG 模式小块写入 */
     const uint8_t *p8 = (const uint8_t *)buf;
@@ -922,6 +948,10 @@ int qspi_page_program(uint32_t addr, const void *buf, uint32_t len)
 int qspi_read(uint32_t addr, void *buf, uint32_t len)
 {
     if (!buf || len == 0u) return -1;
+    if (s_qspi_verbose) {
+        qspi_dump_modes("before-read");
+        printf("s300_qspi: READ addr=0x%08lX len=%lu\n", (unsigned long)addr, (unsigned long)len);
+    }
     
     /* 使用 STIG FAST READ 0x0B 分块读取 */
     uint8_t *pp = (uint8_t *)buf;
@@ -950,6 +980,9 @@ int qspi_read(uint32_t addr, void *buf, uint32_t len)
         pp += chunk;
         a += chunk;
         remain -= chunk;
+    }
+    if (s_qspi_verbose) {
+        qspi_dump_modes("after-read");
     }
     return 0;
 }
@@ -991,6 +1024,64 @@ void qspi_dump_regs(const char *tag)
            (unsigned long)remap, (unsigned long)modeb);
     printf("  SDRAM=%08lX IRQSTS=%08lX\n",
            (unsigned long)sdram, (unsigned long)irqst);
+}
+
+/* 详细解码当前控制器模式配置（RD_INSTR/WR_INSTR/SIZE/DELAY/RD_CAPTURE/BAUD等） */
+static void qspi_dump_modes(const char *tag)
+{
+    if (!tag) tag = "";
+    uint32_t cfg    = REG32(g_qspi.reg, CQSPI_REG_CONFIG);
+    uint32_t size   = REG32(g_qspi.reg, CQSPI_REG_SIZE);
+    uint32_t rdins  = REG32(g_qspi.reg, CQSPI_REG_RD_INSTR);
+    uint32_t wrins  = REG32(g_qspi.reg, CQSPI_REG_WR_INSTR);
+    uint32_t delay  = REG32(g_qspi.reg, CQSPI_REG_DELAY);
+    uint32_t cap    = REG32(g_qspi.reg, CQSPI_REG_RD_DATA_CAPTURE);
+    uint32_t remap  = REG32(g_qspi.reg, CQSPI_REG_REMAP);
+    uint32_t modeb  = REG32(g_qspi.reg, CQSPI_REG_MODE_BIT);
+    uint32_t baud   = qspi_get_baud_raw();
+    uint32_t sclk   = qspi_get_actual_sclk_hz();
+
+    uint32_t addr_bytes = ((size >> CQSPI_SIZE_ADDR_LSB) & CQSPI_SIZE_ADDR_MASK) + 1u;
+    uint32_t rd_op   = (rdins >> CQSPI_RD_OPCODE_LSB) & CQSPI_RD_OPCODE_MASK;
+    uint32_t rd_ti   = (rdins >> CQSPI_RD_TYPE_INSTR_LSB) & CQSPI_RD_TYPE_INSTR_MASK;
+    uint32_t rd_ta   = (rdins >> CQSPI_RD_TYPE_ADDR_LSB)  & CQSPI_RD_TYPE_ADDR_MASK;
+    uint32_t rd_td   = (rdins >> CQSPI_RD_TYPE_DATA_LSB)  & CQSPI_RD_TYPE_DATA_MASK;
+    uint32_t rd_md   = (rdins >> CQSPI_RD_MODE_EN_LSB)    & 0x1u;
+    uint32_t rd_dm   = (rdins >> CQSPI_RD_DUMMY_LSB)      & CQSPI_RD_DUMMY_MASK;
+
+    uint32_t wr_op   = (wrins >> CQSPI_WR_OPCODE_LSB) & CQSPI_WR_OPCODE_MASK;
+    uint32_t wr_ta   = (wrins >> CQSPI_WR_TYPE_ADDR_LSB) & CQSPI_WR_TYPE_ADDR_MASK;
+    uint32_t wr_td   = (wrins >> CQSPI_WR_TYPE_DATA_LSB) & CQSPI_WR_TYPE_DATA_MASK;
+    uint32_t wr_dm   = (wrins >> CQSPI_WR_DUMMY_LSB)     & CQSPI_WR_DUMMY_MASK;
+
+    uint32_t tshsl = (delay >> CQSPI_DELAY_TSHSL_LSB) & CQSPI_DELAY_TSHSL_MASK;
+    uint32_t tchsh = (delay >> CQSPI_DELAY_TCHSH_LSB) & CQSPI_DELAY_TCHSH_MASK;
+    uint32_t tslch = (delay >> CQSPI_DELAY_TSLCH_LSB) & CQSPI_DELAY_TSLCH_MASK;
+    uint32_t tsd2d = (delay >> CQSPI_DELAY_TSD2D_LSB) & CQSPI_DELAY_TSD2D_MASK;
+
+    uint32_t cap_bypass = (cap & CQSPI_RD_CAPTURE_BYPASS) ? 1u : 0u;
+    uint32_t cap_delay  = (cap >> CQSPI_RD_CAPTURE_DELAY_LSB) & CQSPI_RD_CAPTURE_DELAY_MASK;
+    uint32_t cap_edge   = (cap & CQSPI_RD_CAPTURE_SAMPLE_EDGE) ? 1u : 0u;
+
+    printf("s300_qspi: modes %s\n", tag);
+    printf("  CFG=0x%08lX (DIRECT=%u XIP_NEXT=%u XIP_IMM=%u) REMAP=0x%08lX SIZE.addr_bytes=%lu\n",
+        (unsigned long)cfg,
+        (unsigned)(((cfg & CQSPI_CFG_DIRECT) != 0)),
+        (unsigned)(((cfg & CQSPI_CFG_XIP_NEXT) != 0)),
+        (unsigned)(((cfg & CQSPI_CFG_XIP_IMM) != 0)),
+        (unsigned long)remap,
+        (unsigned long)addr_bytes);
+    printf("  RD_INSTR: OPCODE=0x%02lX ITYPE=%lu ATYPE=%lu DTYPE=%lu MODE_EN=%lu DUMMY=%lu\n",
+        (unsigned long)rd_op, (unsigned long)rd_ti, (unsigned long)rd_ta,
+        (unsigned long)rd_td, (unsigned long)rd_md, (unsigned long)rd_dm);
+    printf("  WR_INSTR: OPCODE=0x%02lX ATYPE=%lu DTYPE=%lu DUMMY=%lu\n",
+        (unsigned long)wr_op, (unsigned long)wr_ta, (unsigned long)wr_td, (unsigned long)wr_dm);
+    printf("  DELAY: TSHSL=%lu TCHSH=%lu TSLCH=%lu TSD2D=%lu\n",
+        (unsigned long)tshsl, (unsigned long)tchsh, (unsigned long)tslch, (unsigned long)tsd2d);
+    printf("  RD_CAPTURE: BYPASS=%lu DELAY=%lu SAMPLE_EDGE=%lu\n",
+        (unsigned long)cap_bypass, (unsigned long)cap_delay, (unsigned long)cap_edge);
+    printf("  MODE=0x%08lX BAUD=%lu SCLK=%lu Hz\n",
+        (unsigned long)modeb, (unsigned long)baud, (unsigned long)sclk);
 }
 
 int qspi_read_status(uint8_t *sr1, uint8_t *sr2, uint8_t *sr3)

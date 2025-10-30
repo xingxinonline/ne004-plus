@@ -447,6 +447,10 @@ typedef struct
 extern qspi_cadence_t g_qspi;
 
 void qspi_cadence_init(uint32_t ref_clk_hz, uint32_t sclk_hz);
+/* 读取当前控制器配置得到的实际 SCLK（根据 BAUD 分频字段计算） */
+uint32_t qspi_get_actual_sclk_hz(void);
+/* 返回当前 BAUD 寄存器 raw 值（0..15），含义为 SCLK = ref/(2*(raw+1)) */
+uint32_t qspi_get_baud_raw(void);
 
 int qspi_read_id(uint8_t *id, uint32_t len);
 int qspi_read_device_id(uint8_t *dev_id);

@@ -105,6 +105,39 @@ NMI_Handler:
 .weak HardFault_Handler
 .thumb_func
 HardFault_Handler:
+    /* Save current stack pointer to determine if MSP or PSP */
+    tst lr, #4
+    ite eq
+    mrseq r0, msp
+    mrsne r0, psp
+    
+    /* r0 now points to the stacked registers:
+       Offset 0x00: R0
+       Offset 0x04: R1
+       Offset 0x08: R2
+       Offset 0x0C: R3
+       Offset 0x10: R12
+       Offset 0x14: LR
+       Offset 0x18: PC (return address)
+       Offset 0x1C: xPSR
+    */
+    
+    /* Load fault status registers into r1-r4 */
+    ldr r1, =0xE000ED28    /* CFSR (Configurable Fault Status Register) */
+    ldr r2, =0xE000ED2C    /* HFSR (HardFault Status Register) */
+    ldr r3, =0xE000ED34    /* MMFAR (MemManage Fault Address Register) */
+    ldr r4, =0xE000ED38    /* BFAR (BusFault Address Register) */
+    ldr r1, [r1]
+    ldr r2, [r2]
+    ldr r3, [r3]
+    ldr r4, [r4]
+    
+    /* Call C handler with stack frame pointer and fault registers */
+    /* Arguments: r0=stack_frame, r1=cfsr, r2=hfsr, r3=mmfar, r4=bfar */
+    push {r4}              /* Push bfar as 5th argument */
+    bl HardFault_Handler_C
+    pop {r4}
+    
     b .
 
 .weak MemManage_Handler

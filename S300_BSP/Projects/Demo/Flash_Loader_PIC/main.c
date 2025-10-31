@@ -229,16 +229,16 @@ void flash_loader_test(void)
                (unsigned long)*qspi_config, (unsigned long)*qspi_cmdctrl);
     }
     
-    /* EXPERIMENTAL: Temporarily disable QSPI for direct register access from PIC code
-     * This ensures no hardware state machine interferes with register writes */
-    printf("Disabling QSPI for PIC direct access...\n");
-    uint32_t saved_config = *qspi_config;
-    *qspi_config = saved_config & ~(1u << 0);  /* Clear ENABLE bit */
+    /* CRITICAL FIX: DO NOT disable QSPI controller!
+     * The PIC code REQUIRES the controller to be ENABLED to execute STIG commands.
+     * The previous code disabled the controller which caused STIG command timeouts (error code 2).
+     * We only need to ensure:
+     * 1. QSPI is NOT in XIP mode (already done by qspi_exit_xip_mode above)
+     * 2. QSPI is idle (already verified above)
+     * 3. QSPI is in Direct/STIG mode (default after XIP exit)
+     */
     
-    /* Verify disabled */
-    printf("QSPI disabled (CONFIG=0x%08lX)\n", (unsigned long)*qspi_config);
-    
-    /* Memory barrier */
+    /* Memory barrier - ensure all previous operations complete */
     __DSB();
     __ISB();
     
@@ -264,11 +264,6 @@ void flash_loader_test(void)
     /* Memory barriers after returning */
     __DSB();
     __ISB();
-    
-    /* Re-enable QSPI controller */
-    printf("Re-enabling QSPI...\n");
-    *qspi_config = saved_config;  /* Restore original config with ENABLE bit */
-    __DSB();
     
     printf("Returned from flash_read_pic with code %d\n", ret);
     

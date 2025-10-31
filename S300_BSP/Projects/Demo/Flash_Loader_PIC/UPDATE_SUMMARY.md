@@ -61,7 +61,7 @@
 ```c
 #define SRAM0_BASE  0x10000000UL  // 8KB  - 动态加载区
 #define SRAM1_BASE  0x20000000UL  // 384KB - 主程序区
-#define QSPI_BASE   QSPI_CFG_BASE // 0x4000D000 - QSPI 控制器 (APB寄存器基址)
+#define QSPI_BASE   QSPI_CFG_BASE // QSPI APB寄存器基址 (定义在 s300_memmap.h: 0x4000D000)
 ```
 
 #### ✅ Flash Loader Context
@@ -199,7 +199,7 @@ openocd -f board/xxx.cfg \
 // ❌ 错误做法 (已移除):
 printf("Disabling QSPI for PIC direct access...\n");
 uint32_t saved_config = *qspi_config;
-*qspi_config = saved_config & ~(1u << 0);  // 禁用控制器
+*qspi_config = saved_config & ~(1u << 0);  // 清除 bit 0 (ENABLE) 以禁用控制器
 
 // ✅ 正确做法:
 /* CRITICAL FIX: DO NOT disable QSPI controller!

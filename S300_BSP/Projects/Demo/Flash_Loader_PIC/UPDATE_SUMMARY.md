@@ -61,7 +61,7 @@
 ```c
 #define SRAM0_BASE  0x10000000UL  // 8KB  - 动态加载区
 #define SRAM1_BASE  0x20000000UL  // 384KB - 主程序区
-#define QSPI_BASE   0x41000000UL  // QSPI 控制器
+#define QSPI_BASE   QSPI_CFG_BASE // 0x4000D000 - QSPI 控制器 (APB寄存器基址)
 ```
 
 #### ✅ Flash Loader Context
@@ -184,6 +184,64 @@ openocd -f board/xxx.cfg \
 ```
 
 ## 下一步
+
+### ⚠️ 重要修复 (2025-10-31)
+
+#### 问题: Flash 读取失败 (错误码 2 - STIG 命令超时)
+
+**根本原因**:
+- main.c 中的 `flash_loader_test()` 函数在调用 PIC 代码前禁用了 QSPI 控制器
+- PIC 代码需要 QSPI 控制器处于 **启用状态** 才能执行 STIG 命令
+- 禁用控制器导致 `qspi_exec_cmd` 宏中的超时
+
+**修复方案**:
+```c
+// ❌ 错误做法 (已移除):
+printf("Disabling QSPI for PIC direct access...\n");
+uint32_t saved_config = *qspi_config;
+*qspi_config = saved_config & ~(1u << 0);  // 禁用控制器
+
+// ✅ 正确做法:
+/* CRITICAL FIX: DO NOT disable QSPI controller!
+ * The PIC code REQUIRES the controller to be ENABLED to execute STIG commands.
+ * We only need to ensure:
+ * 1. QSPI is NOT in XIP mode (already done by qspi_exit_xip_mode)
+ * 2. QSPI is idle (already verified)
+ * 3. QSPI is in Direct/STIG mode (default after XIP exit)
+ */
+```
+
+**技术细节**:
+1. QSPI 控制器状态:
+   - **启用/禁用** - CONFIG 寄存器 bit 0
+   - **XIP/Direct 模式** - CONFIG 寄存器 XIP_NEXT/XIP_IMM 位
+   - **空闲/忙碌** - CONFIG 寄存器 bit 31 (IDLE)
+
+2. PIC 代码要求:
+   - 控制器必须 **启用** (ENABLE=1)
+   - 控制器必须处于 **Direct/STIG 模式** (非 XIP)
+   - 控制器必须 **空闲** (IDLE=1)
+
+3. 正确流程:
+   ```
+   qspi_cadence_init() → 启用控制器
+   qspi_exit_xip_mode() → 退出 XIP，进入 Direct/STIG 模式
+   等待 IDLE → 确保控制器就绪
+   [保持启用] → 不要禁用控制器
+   调用 PIC 代码 → 成功执行 STIG 命令
+   ```
+
+**修改的文件**:
+- `main.c` (flash_loader_test 函数)
+  - 移除 QSPI 禁用代码
+  - 移除 QSPI 重新启用代码
+  - 添加详细注释说明原因
+
+**预期结果**:
+- ✅ flash_read_pic 返回 0 (成功)
+- ✅ 正确读取 Flash 数据
+- ✅ CRC32 计算正常
+- ✅ 无超时错误
 
 ### 可选优化
 1. **性能优化**

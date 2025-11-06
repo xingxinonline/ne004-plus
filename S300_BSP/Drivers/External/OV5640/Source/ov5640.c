@@ -222,7 +222,7 @@ static const uint16_t ov5640_init_cfg[][2] =
     {0x4740, 0x20} //正点原子 bit5：1 PCLK active high bit1:HREF 0 active low bit0：VSYNC 1 active high
 };
 
-static const uint16_t ov5640_yuv422_cfg[][2] =
+static const uint16_t ov5640_megapixel_rgb565_pxcfg[][2] =
 {
     {0x4300, 0x61},//bit[7:4] 0x3 YUV422 ,bit[3:0] 0x0 Output sequence: YUYV
     {0x501F, 0x01},//Format select 0x01 ISP  RGB , 0x00 ISP YUV422
@@ -269,6 +269,87 @@ static const uint16_t ov5640_yuv422_cfg[][2] =
     {0x3824, 0x02},
     {0x5001, 0x83},
     {0x3503, 0x00}
+};
+
+
+const uint16_t ov5640_yuv422_cfg[][2] = {
+
+    {/*0 ,*/0x4300, 0x30},//bit[7:4] 0x3 YUV422 ,bit[3:0] 0x0 Output sequence: YUYV
+    {/*1 ,*/0x501F, 0x00},//Format select 0x01 ISP  RGB , 0x00 ISP YUV422
+    {/*2 ,*/0x3035, 0x41},//PLL 
+    {/*3 ,*/0x3036, 0x69},//PLL   
+    {/*4 ,*/0x3C07, 0x07},//light meter 1 threshold L
+	#if 0
+    {/*5 ,*/0x3820, 0x43}, //Sensor flip , ISP flip;Bit[2]: ISP vflip  Bit[1]: Sensor vflip
+	#else
+	{/*5 ,*/0x3820, 0x41}, //Small screen display
+	#endif
+    //{/*5 ,*/0x3820, 0x46},//Sensor flip , ISP flip;Bit[2]: ISP vflip  Bit[1]: Sensor vflip
+    {/*6 ,*/0x3821, 0x00},//Timing Control Bit[2]: ISP mirror Bit[1]: Sensor mirror
+    {/*7 ,*/0x3814, 0x31},//image windowing registers 0x3800-0x3813  timing control registers 0x3800-0x3821
+    {/*8 ,*/0x3815, 0x31},
+    {/*9 ,*/0x3800, 0x00},//Image window Bit[7:4]: Debug mode Bit[3:0]: X address start[11:8]  -0
+    {/*10,*/0x3801, 0x00},//Image window Bit[7:0]: X address start[7:0]
+    {/*11,*/0x3802, 0x00},//Image window Bit[7:4]: Debug mode Bit[3:0]: Y address start[11:8]  -0
+    {/*12,*/0x3803, 0xFA},
+    //{/*12,*/0x3803, 0x00},//Image window Bit[7:0]: Y address start[7:0]
+    {/*13,*/0x3804, 0x0A},//Image window xend      Bit[7:4]: Debug mode Bit[3:0]: X address end[11:8]   -2623
+    {/*14,*/0x3805, 0x3F},//Image window xend      Bit[7:0]: X address end[7:0]
+    {/*15,*/0x3806, 0x06},//Image window yend      Bit[7:3]: Debug mode Bit[2:0]: Y address end[10:8]  -1705
+    {/*16,*/0x3807, 0xA9},//Image window yend      Bit[7:0]: Y address end[7:0]
+	#if 0
+    {/*17,*/0x3808, (SENSOR_IMAGE_WIDTH >> 8) & 0xff},//Image window after scaling      x    Bit[7:4]: Debug mod  Bit[3:0]: DVP output horizontal width[11:8] -2560  0x1e0 480
+    {/*18,*/0x3809, SENSOR_IMAGE_WIDTH & 0xff},//Image window after scaling      x    Bit[7:0]: DVP output horizontal width[7:0]
+    {/*19,*/0x380A, (SENSOR_IMAGE_HEIGHT >> 8) & 0xff},//Image window after scaling      y    Bit[7:3]: Debug mode Bit[2:0]: DVP output vertical height[10:8]  -1440    0x140 320
+    {/*20,*/0x380B, SENSOR_IMAGE_HEIGHT & 0xff},//Image window after scaling      y    Bit[7:0]: DVP output vertical height[7:0]
+    {/*21,*/0x380C, 0x0A},
+    {/*22,*/0x380D, 0x00},
+//  {/*21,*/0x380C, 0x0E},
+//  {/*22,*/0x380D, 0xC8},
+    {/*23,*/0x380E, 0x05},
+    {/*24,*/0x380F, 0x00},
+//  {/*23,*/0x380E, 0x0B},
+//  {/*24,*/0x380F, 0xAC},
+	#else
+	{/*17,*/0x3808, (SENSOR_IMAGE_WIDTH >> 8) & 0xff},//Image window after scaling      x    Bit[7:4]: Debug mod  Bit[3:0]: DVP output horizontal width[11:8] -2560  0x1e0 480
+    {/*18,*/0x3809, SENSOR_IMAGE_WIDTH & 0xff},//Image window after scaling      x    Bit[7:0]: DVP output horizontal width[7:0]
+    {/*19,*/0x380A, (SENSOR_IMAGE_HEIGHT >> 8) & 0xff},//Image window after scaling      y    Bit[7:3]: Debug mode Bit[2:0]: DVP output vertical height[10:8]  -1440    0x140 320
+    {/*20,*/0x380B, SENSOR_IMAGE_HEIGHT & 0xff},//Image window after scaling      y    Bit[7:0]: DVP output vertical height[7:0]
+    // {/*17,*/0x3808, 0x05},//Image window after scaling      x    Bit[7:4]: Debug mod  Bit[3:0]: DVP output horizontal width[11:8] -1280  0x1e0 480
+    // {/*18,*/0x3809, 0x00},//Image window after scaling      x    Bit[7:0]: DVP output horizontal width[7:0]
+    // {/*19,*/0x380A, 0x02},//Image window after scaling      y    Bit[7:3]: Debug mode Bit[2:0]: DVP output vertical height[10:8]  -720    0x140 320
+    // {/*20,*/0x380B, 0xd0},//Image window after scaling      y    Bit[7:0]: DVP output vertical height[7:0]
+
+    {/*21,*/0x380C, 0x07},
+  //{/*21,*/0x380C, 0x05},//
+    {/*22,*/0x380D, 0x64},
+  //{/*22,*/0x380D, 0xF8},//
+    {/*23,*/0x380E, 0x02},
+  //{/*23,*/0x380E, 0x03},
+    {/*24,*/0x380F, 0xE4},
+  //{/*24,*/0x380F, 0x84},
+	#endif
+    {/*25,*/0x3813, 0x04},//Image window  Y offeset     Bit[7:0]: Vertical offset[7:0]
+    {/*26,*/0x3618, 0x00},
+    {/*27,*/0x3612, 0x29},
+    {/*28,*/0x3709, 0x52},
+    {/*29,*/0x370C, 0x03},
+    {/*30,*/0x3A02, 0x02},
+    {/*31,*/0x3A03, 0xE0},
+    {/*32,*/0x3A14, 0x02},
+    {/*33,*/0x3A15, 0xE0},
+    {/*34,*/0x4004, 0x02},
+    {/*35,*/0x3002, 0x1C},
+    {/*36,*/0x3006, 0xC3},
+    {/*37,*/0x4713, 0x03},
+    {/*38,*/0x4407, 0x04},
+    {/*39,*/0x460B, 0x37},
+    {/*40,*/0x460C, 0x20},
+    {/*41,*/0x4837, 0x16},
+    {/*42,*/0x3824, 0x04},
+    {/*43,*/0x5001, 0x83},
+  //{/*43,*/0x5001, 0xA3}, 
+    {/*44,*/0x3503, 0x00}
 };
 
 static const uint16_t ov5640_colorbar[][2] = { {0x503D, 0x80}, {0x4741, 0x00} };

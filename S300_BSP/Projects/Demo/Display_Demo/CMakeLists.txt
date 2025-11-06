@@ -23,6 +23,7 @@ include_directories(
     ${ROOT}/Drivers/SoC/MAILBOX/Include
     ${ROOT}/Drivers/External/OV5640/Include
     ${ROOT}/Drivers/SoC/MM/Include
+    ${ROOT}/Drivers/SoC/PSRAM/Include
     ${ROOT}/Boards/generic_evb
     ${PROJECT_DIR}/Inc
 )
@@ -74,6 +75,7 @@ set(SRCS
     ${ROOT}/Drivers/SoC/GPIO/Source/gpio.c
     ${ROOT}/Drivers/SoC/UART/Source/uart.c
     ${ROOT}/Drivers/SoC/DMA/Source/dma.c
+    ${ROOT}/Drivers/SoC/PSRAM/Source/psram.c
     ${ROOT}/Drivers/SoC/I2CSoft/Source/i2c_soft.c
     ${ROOT}/Drivers/External/OV5640/Source/ov5640.c
     ${PROJECT_DIR}/Src/main.c

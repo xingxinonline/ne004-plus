@@ -16,6 +16,7 @@
 #include "ui_display.h"
 #include "dma.h"
 #include "rcc.h"
+#include "perf.h"
 
 /* ---- Debug logging ---- */
 /* 开关：UI_DEBUG=0 全关；UI_DEBUG=1 使用分级日志。
@@ -26,7 +27,7 @@
 #define UI_DEBUG 1
 #endif
 #ifndef UI_LOG_LEVEL
-#define UI_LOG_LEVEL 2
+#define UI_LOG_LEVEL 1
 #endif
 
 #if UI_DEBUG
@@ -76,18 +77,84 @@ LV_ATTRIBUTE_MEM_ALIGN static uint16_t s_drawbuf2[DISP_IMAGE_WIDTH * DRAWBUF_LIN
 
 /* 后台/前台状态与 DMA 传输上下文 */
 static volatile uint8_t  s_front_idx = 0u;   /* 当前正在显示的硬件buffer：0->s_f0，1->s_f1 */
-static volatile uint8_t  s_dma_busy = 0u;    /* DMA 正在搬运一个 flush 区域 */
-static volatile uint8_t  s_dma_last = 0u;    /* 本次 DMA 是否对应本帧最后一次 flush */
+static volatile uint8_t  s_dma_busy = 0u;    /* DMA 正在搬运一个 flush 区域（scatter 通道） */
+static volatile uint8_t  s_dma_last = 0u;    /* 兼容保留：本次 DMA 是否对应本帧最后一次 flush */
 static lv_display_t *    s_dma_disp = NULL;  /* 保存 flush 的 disp，用于中断里回调 ready */
 
+/* 1Hz 统计：帧数/flush 次数/CPU 回退次数 */
+static volatile uint32_t s_stat_frames = 0;
+static volatile uint32_t s_stat_flushes = 0;
+static volatile uint32_t s_stat_cpu_fallbacks = 0;
+static uint32_t          s_stat_last_report_ms = 0;
+/* 是否在屏幕角落显示统计信息（默认关闭，可在编译时 -DUI_STAT_OVERLAY=1 打开） */
+#ifndef UI_STAT_OVERLAY
+#define UI_STAT_OVERLAY 1
+#endif
+#if UI_STAT_OVERLAY
+static lv_obj_t *        s_stat_label = NULL;
+static char              s_stat_text[96];
+#endif
+
+/* Keep-alive 刷新（避免在“无脏区”时整条显示链停摆）：
+ * 周期性对统计标签做一次轻量级无效化，触发 LVGL 最小区域刷新，从而保证：
+ *  - 启动即可有显示（标签初始化即创建并可见）；
+ *  - 外部画面变化（如人脸消失）时，能被及时呈现；
+ *  - 避免整屏强制刷新，仅刷新顶层小区域，降低带宽和功耗。
+ */
+#ifndef UI_KEEPALIVE_ENABLE
+#define UI_KEEPALIVE_ENABLE 1
+#endif
+#ifndef UI_KEEPALIVE_MS
+#define UI_KEEPALIVE_MS 200u
+#endif
+static lv_timer_t *      s_keepalive_timer = NULL;
+
+static void ui_keepalive_timer_cb(lv_timer_t * t)
+{
+    LV_UNUSED(t);
+#if UI_STAT_OVERLAY
+    if (s_stat_label) {
+        /* 只无效化标签自身，触发最小区域刷新 */
+        lv_obj_invalidate(s_stat_label);
+        return;
+    }
+#endif
+    /* 兜底：如未创建标签，则无效化当前屏幕，确保有刷新 */
+    lv_obj_invalidate(lv_screen_active());
+}
+
+/* 统计叠加是否竖向显示（从上到下），默认开启；如需关闭可 -DUI_STAT_VERTICAL=0 */
+#ifndef UI_STAT_VERTICAL
+#define UI_STAT_VERTICAL 1
+#endif
+
 /* 选用 DMA0 的固定通道（与其它Demo/外设错开，避免冲突） */
-#define UI_DMA_IDX   DMA_IDX0
-#define UI_DMA_CH    2u
+#define UI_DMA_IDX          DMA_IDX0
+#define UI_DMA_CH_SCATTER   2u  /* 局部刷新（目的散射）通道 */
+#define UI_DMA_CH_LLI       3u  /* 整帧基线复制（LLI）通道 */
+
+/* LLI 池：用于整帧 Front->Back 的基线复制（对齐 8B，容量覆盖常见分辨率） */
+LV_ATTRIBUTE_MEM_ALIGN static dma_lli_t s_dma_llis[64] __attribute__((aligned(8)));
+
+static inline uint32_t frame_bytes(void)
+{
+    return (uint32_t)DISP_IMAGE_WIDTH * (uint32_t)DISP_IMAGE_HEIGHT * BYTES_PER_PIXEL;
+}
+
+static inline volatile uint16_t * get_front_fb(void)
+{
+    return (s_front_idx == 0u) ? s_f0 : s_f1;
+}
+
+static inline volatile uint16_t * get_back_fb(void)
+{
+    return (s_front_idx == 0u) ? s_f1 : s_f0;
+}
 
 static inline volatile uint16_t * get_draw_fb(void)
 {
-    /* 单硬件buffer：固定向 F0 写，并且由 DSP 一直显示 F0 */
-    return s_f0;
+    /* 双硬件 ping-pong：总是向“后台”缓冲写入（front 的相反端） */
+    return get_back_fb();
 }
 
 static inline void switch_present_to(uint8_t fb_idx)
@@ -97,12 +164,12 @@ static inline void switch_present_to(uint8_t fb_idx)
         REG32(REG_F0) = 1u;
         while ((REG32(REG_F0) & 0x1u) != 0u) { }
         s_front_idx = 0u;
-    UI_LOGI("SWAP", "Present->F0 (addr=%p)", s_f0);
+        /* 单次 swap 日志已下沉到 1Hz 统计，避免噪声 */
     } else {
         REG32(REG_F1) = 1u;
         while ((REG32(REG_F1) & 0x1u) != 0u) { }
         s_front_idx = 1u;
-    UI_LOGI("SWAP", "Present->F1 (addr=%p)", s_f1);
+        /* 单次 swap 日志已下沉到 1Hz 统计，避免噪声 */
     }
 }
 
@@ -136,10 +203,11 @@ static void start_dma_rect_copy(lv_display_t * disp, const lv_area_t * area, con
 
     /* 小块或 DMA 正忙：退化为 CPU 行拷贝，减少 DMA 启停抖动 */
     const uint32_t pix = w * h;
-    if (s_dma_busy || pix < 256u) {
-    UI_LOGD("FALLBACK", "DMA busy->CPU copy");
+    if (s_dma_busy || is_dma_busy(EM_DMA0, UI_DMA_CH_SCATTER) || pix < 256u) {
+        UI_LOGD("FALLBACK", "DMA busy->CPU copy");
         cpu_copy_rect_to_backfb(area, src);
         lv_display_flush_ready(disp);
+        ++s_stat_cpu_fallbacks;
         return;
     }
 
@@ -148,11 +216,11 @@ static void start_dma_rect_copy(lv_display_t * disp, const lv_area_t * area, con
     emDMATRWIDTH tw = use32 ? EM_TR_WIDTH_32_BIT : EM_TR_WIDTH_16_BIT;
 
     /* 编程 DMA：一次传输长度为 total_bytes，位宽按 tw；目的散射参数单位=位宽transfer */
-    set_dma_std(EM_DMA0, UI_DMA_CH, (uint32_t)(uintptr_t)src, (uint32_t)dst_start, total_bytes, tw);
-    set_dma_std_increment(EM_DMA0, UI_DMA_CH, EM_ADDRESS_INC, EM_ADDRESS_INC);
-    set_dma_std_transfer_bitwidth(EM_DMA0, UI_DMA_CH, tw, tw);
+    set_dma_std(EM_DMA0, UI_DMA_CH_SCATTER, (uint32_t)(uintptr_t)src, (uint32_t)dst_start, total_bytes, tw);
+    set_dma_std_increment(EM_DMA0, UI_DMA_CH_SCATTER, EM_ADDRESS_INC, EM_ADDRESS_INC);
+    set_dma_std_transfer_bitwidth(EM_DMA0, UI_DMA_CH_SCATTER, tw, tw);
     /* 提升带宽：提高突发深度（对 M2M 有效），保持 8 作为折中 */
-    set_dma_burst_size(EM_DMA0, UI_DMA_CH, EM_MSIZE_8B, EM_MSIZE_8B);
+    set_dma_burst_size(EM_DMA0, UI_DMA_CH_SCATTER, EM_MSIZE_8B, EM_MSIZE_8B);
     /* 目的散射设置：单位为 transfer；
      * - 16bit: dsc=w, dsi=(stride-w)
      * - 32bit: 一次传2像素，因此 dsc=w/2, dsi=(stride-w)/2
@@ -165,23 +233,128 @@ static void start_dma_rect_copy(lv_display_t * disp, const lv_area_t * area, con
         dsc = w;
         dsi = (uint32_t)DISP_IMAGE_WIDTH - w;
     }
-    set_dma_dst_scatter(EM_DMA0, UI_DMA_CH, dsc, dsi);
+    set_dma_dst_scatter(EM_DMA0, UI_DMA_CH_SCATTER, dsc, dsi);
     /* 源收集关闭（源是紧凑矩形） */
-    set_dma_src_gather(EM_DMA0, UI_DMA_CH, 0, 0);
+    set_dma_src_gather(EM_DMA0, UI_DMA_CH_SCATTER, 0, 0);
     /* 只用传输完成中断（保持与 Demo/I2S 用法一致） */
-    set_dma_interrupt(EM_DMA0, UI_DMA_CH, EM_DMA_INT_TFR, 1);
+    set_dma_interrupt(EM_DMA0, UI_DMA_CH_SCATTER, EM_DMA_INT_TFR, 1);
 
     s_dma_busy = 1u;
-    s_dma_last = 0u; /* 单buffer：不做帧尾切换 */
+    s_dma_last = 0u; /* 帧尾切换在 LV_EVENT_REFR_READY 中做 */
     s_dma_disp = disp;
 
     /* NVIC 在初始化时已开启，这里不重复设置 */
 
-    set_dma_start(EM_DMA0, UI_DMA_CH);
+    set_dma_start(EM_DMA0, UI_DMA_CH_SCATTER);
 
     /* 打点当前通道寄存器与全局状态，便于确认是否启动 */
-    S300_DMA_TypeDef *D = DMAC0;
-    UI_LOGD("DMA", "Ch=%u start", (unsigned)UI_DMA_CH);
+    UI_LOGD("DMA", "Ch=%u start", (unsigned)UI_DMA_CH_SCATTER);
+}
+
+/* 帧级：在一帧开始前，用 DMA LLI 将“正在显示的 front 缓冲”完整复制到 back 缓冲，
+ * 作为本帧局部更新的基线，避免未更新区域出现不同步撕裂。该函数在 LV_EVENT_REFR_START 中调用。
+ */
+static void do_fullframe_baseline_copy(void)
+{
+    volatile uint16_t *src = get_front_fb();
+    volatile uint16_t *dst = get_back_fb();
+    uint32_t len = frame_bytes();
+
+    /* 若此前有矩形搬运未结束，等待之；同时确保 LLI 通道空闲 */
+    while (s_dma_busy || is_dma_busy(EM_DMA0, UI_DMA_CH_SCATTER) || is_dma_busy(EM_DMA0, UI_DMA_CH_LLI)) { /* 自旋极短 */ }
+
+    /* 选择 32bit 还是 16bit：地址和长度都对齐到 4 则优先 32bit，更高带宽 */
+    const bool use32 = ((((uintptr_t)src | (uintptr_t)dst | (uintptr_t)len) & 0x3u) == 0u);
+    emDMATRWIDTH w = use32 ? EM_TR_WIDTH_32_BIT : EM_TR_WIDTH_16_BIT;
+
+    int rc = set_dma_memcpy_lli_blocking(EM_DMA0, UI_DMA_CH_LLI,
+                                          (uint32_t)(uintptr_t)src,
+                                          (uint32_t)(uintptr_t)dst,
+                                          len, w,
+                                          s_dma_llis, (uint32_t)(sizeof(s_dma_llis)/sizeof(s_dma_llis[0])));
+    if (rc != 0) {
+        /* 极端情况下（容量不足/未对齐），退化为 CPU memcpy */
+        UI_LOGW("LLI", "fallback memcpy rc=%d", rc);
+        memcpy((void*)dst, (const void*)src, len);
+    }
+}
+
+/* LVGL 显示事件：用于帧级协作（帧首做基线复制；帧尾切换前后台） */
+static void lvgl_display_event_cb(lv_event_t * e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_REFR_START) {
+        /* 开始渲染新的一帧：先做 front->back 的整帧基线复制 */
+        UI_LOGD("EVT", "REFR_START: baseline copy front=%u", (unsigned)s_front_idx);
+        do_fullframe_baseline_copy();
+    } else if (code == LV_EVENT_REFR_READY) {
+        /* 一帧所有 flush 完成：提交 back 作为新的显示 front */
+        uint8_t back_idx = (s_front_idx == 0u) ? 1u : 0u;
+        UI_LOGD("EVT", "REFR_READY: present back=%u", (unsigned)back_idx);
+        switch_present_to(back_idx);
+        /* 统计帧数并按 1Hz 打印汇总 */
+        ++s_stat_frames;
+        uint32_t now = lv_tick_get();
+        if (s_stat_last_report_ms == 0) s_stat_last_report_ms = now;
+        if (now - s_stat_last_report_ms >= 1000u) {
+            /* 计算 CPU 使用率（基于 SysTick 计数的 total/idle 差值）*/
+            static uint32_t cpu_total_last = 0;
+            static uint32_t cpu_idle_last  = 0;
+            uint32_t cpu_total = g_cpu_total_ticks;
+            uint32_t cpu_idle  = g_cpu_idle_ticks;
+            uint32_t d_total   = cpu_total - cpu_total_last;
+            uint32_t d_idle    = cpu_idle  - cpu_idle_last;
+            uint32_t cpu_pct   = (d_total > 0) ? (uint32_t)(((d_total > d_idle ? (d_total - d_idle) : 0u) * 100u) / d_total) : 0u;
+            cpu_total_last = cpu_total;
+            cpu_idle_last  = cpu_idle;
+
+            /* 统计 LVGL 内存使用率 */
+            lv_mem_monitor_t mem_mon;
+            lv_mem_monitor(&mem_mon);
+            uint32_t mem_pct = 0;
+            if (mem_mon.total_size > 0) {
+                uint32_t used = (uint32_t)(mem_mon.total_size - mem_mon.free_size);
+                mem_pct = (used * 100u) / (uint32_t)mem_mon.total_size;
+            }
+
+            UI_LOGW("STAT", "fps=%lu flush=%lu cpu=%lu%% mem=%lu%%",
+                    (unsigned long)s_stat_frames,
+                    (unsigned long)s_stat_flushes,
+                    (unsigned long)cpu_pct,
+                    (unsigned long)mem_pct);
+#if UI_STAT_OVERLAY
+            if (!s_stat_label) {
+                /* 创建在顶层图层，确保不被普通屏幕对象覆盖 */
+                s_stat_label = lv_label_create(lv_layer_top());
+                lv_obj_set_style_text_color(s_stat_label, lv_color_white(), 0);
+                lv_obj_set_style_bg_opa(s_stat_label, LV_OPA_10, 0);
+                lv_obj_set_style_bg_color(s_stat_label, lv_color_black(), 0);
+                /* 置于顶层对象树，通常已足够避免被覆盖 */
+                lv_obj_align(s_stat_label, LV_ALIGN_TOP_LEFT, 125, 3);
+#if UI_STAT_VERTICAL
+                /* 竖向显示（从上到下）：将标签整体逆时针旋转 90 度，并以左上角为旋转枢轴 */
+                /* 注意：需要 LV_USE_TRANSFORM 使能；若未使能则此设置无效但不影响显示 */
+                #if defined(LV_USE_TRANSFORM) && LV_USE_TRANSFORM
+                lv_obj_set_style_transform_pivot_x(s_stat_label, 0, 0);
+                lv_obj_set_style_transform_pivot_y(s_stat_label, 0, 0);
+                lv_obj_set_style_transform_angle(s_stat_label, 900, 0); /* 90° */
+                #endif
+#endif
+            }
+            /* 多行显示，增加内存使用率；用定宽域对齐，避免 fps 位数变化影响 flush 的起始列 */
+            lv_snprintf(s_stat_text, sizeof(s_stat_text), "fps=%3lu   flush=%3lu\ncpu=%3lu%%  mem=%3lu%%",
+                        (unsigned long)s_stat_frames,
+                        (unsigned long)s_stat_flushes,
+                        (unsigned long)cpu_pct,
+                        (unsigned long)mem_pct);
+            lv_label_set_text(s_stat_label, s_stat_text);
+#endif
+            s_stat_frames = 0;
+            s_stat_flushes = 0;
+            s_stat_cpu_fallbacks = 0; /* 保留计数，但不再显示 */
+            s_stat_last_report_ms = now;
+        }
+    }
 }
 
 static void fill_buffer(volatile uint16_t *frame,
@@ -196,8 +369,9 @@ static void fill_buffer(volatile uint16_t *frame,
 static void lvgl_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map)
 {
     /* PARTIAL 模式：px_map 指向紧凑矩形，按区域搬运到“后台硬件buffer” */
-    // UI_LOG("CALL", "flush_cb px=%p", px_map);
+    UI_LOGD("CALL", "flush_cb px=%p", px_map);
     start_dma_rect_copy(disp, area, (const uint16_t *)px_map, false);
+    ++s_stat_flushes;
 }
 
 lv_display_t * ui_display_init(void)
@@ -232,6 +406,33 @@ lv_display_t * ui_display_init(void)
                            (uint32_t)(sizeof(s_drawbuf1)),
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(disp, lvgl_flush_cb);
+    /* 订阅帧级事件：在帧首进行整帧基线复制，帧尾切换显示 */
+    lv_display_add_event_cb(disp, lvgl_display_event_cb, LV_EVENT_ALL, NULL);
+
+#if UI_STAT_OVERLAY
+    /* 提前创建统计标签：启动即可见，不依赖首次刷新事件 */
+    if (!s_stat_label) {
+        s_stat_label = lv_label_create(lv_layer_top());
+        lv_obj_set_style_text_color(s_stat_label, lv_color_white(), 0);
+        lv_obj_set_style_bg_opa(s_stat_label, LV_OPA_10, 0);
+        lv_obj_set_style_bg_color(s_stat_label, lv_color_black(), 0);
+        lv_obj_align(s_stat_label, LV_ALIGN_TOP_LEFT, 125, 3);
+#if UI_STAT_VERTICAL
+        #if defined(LV_USE_TRANSFORM) && LV_USE_TRANSFORM
+        lv_obj_set_style_transform_pivot_x(s_stat_label, 0, 0);
+        lv_obj_set_style_transform_pivot_y(s_stat_label, 0, 0);
+        lv_obj_set_style_transform_angle(s_stat_label, 900, 0);
+        #endif
+#endif
+        lv_label_set_text(s_stat_label, "fps=  0   flush=  0\ncpu=  0%  mem=  0%");
+    }
+#endif
+
+#if UI_KEEPALIVE_ENABLE
+    if (!s_keepalive_timer) {
+        s_keepalive_timer = lv_timer_create(ui_keepalive_timer_cb, UI_KEEPALIVE_MS, NULL);
+    }
+#endif
 
     UI_LOGI("INIT", "drawbuf1=%p drawbuf2=%p align=%u bytes=%lu", s_drawbuf1, s_drawbuf2, (unsigned)8, (unsigned long)sizeof(s_drawbuf1));
     UI_LOGI("INIT", "fb0=%p fb1=%p alpha0=%p alpha1=%p", s_f0, s_f1, s_a0, s_a1);
@@ -240,7 +441,7 @@ lv_display_t * ui_display_init(void)
     fill_buffer(f0, a0, pixels, 0xFFFFu, 0xAAu);
     fill_buffer(f1, a1, pixels, 0xFFFFu, 0xAAu);
 
-    /* 单硬件buffer：固定显示 F0 */
+    /* 初始显示 F0（front=0），渲染写入将落到 F1（back） */
     REG32(REG_F0) = 1u;
 
     /* 默认先认为前台显示 f0，后台渲染 f1（实际切换发生在首帧完成后）*/
@@ -266,21 +467,21 @@ void DMA0_IRQHandler(void)
     S300_DMA_TypeDef *D = DMAC0;
     uint32_t st = D->StatusTfr;
     /* 只关心我们使用的通道 UI_DMA_CH */
-    if (st & (1u << UI_DMA_CH)) {
+    if (st & (1u << UI_DMA_CH_SCATTER)) {
         /* 采样打印，防止中断频繁刷屏 */
         #if UI_DEBUG
         if (UI_LOG_LEVEL >= UI_LOG_LEVEL_DEBUG) {
             static uint32_t s_irq_log_cnt = 0;
             if ((s_irq_log_cnt++ & 0xFFu) == 0u) { /* 每 256 次打印一次 */
-                UI_LOGD("IRQ", "StatusTfr=0x%08lX ch%u", (unsigned long)st, (unsigned)UI_DMA_CH);
+                UI_LOGD("IRQ", "StatusTfr=0x%08lX ch%u", (unsigned long)st, (unsigned)UI_DMA_CH_SCATTER);
             }
         }
         #endif
         /* 清除传输完成中断标志 */
-        D->ClearTfr = (1u << UI_DMA_CH);
+        D->ClearTfr = (1u << UI_DMA_CH_SCATTER);
 
         /* 关闭目的散射，避免影响后续配置（安全起见） */
-        set_dma_dst_scatter(EM_DMA0, UI_DMA_CH, 0, 0);
+        set_dma_dst_scatter(EM_DMA0, UI_DMA_CH_SCATTER, 0, 0);
 
         s_dma_busy = 0u;
         if (s_dma_disp) {
@@ -294,6 +495,6 @@ void DMA0_IRQHandler(void)
         /* 单buffer：不进行帧切换 */
     } else {
         /* 如果进中断却非我们通道，记录一次 */
-    if (st) UI_LOGD("IRQ", "StatusTfr=0x%08lX (not our ch%u)", (unsigned long)st, (unsigned)UI_DMA_CH);
+        if (st) UI_LOGD("IRQ", "StatusTfr=0x%08lX (not our ch%u)", (unsigned long)st, (unsigned)UI_DMA_CH_SCATTER);
     }
 }

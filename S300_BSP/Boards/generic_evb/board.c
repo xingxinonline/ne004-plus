@@ -14,6 +14,8 @@ static void board_uart3_pins_init(void)
     set_cortex_m4_apb1_clock(RCC_CM4_APB1_GPIO, true);
     set_gpio_function(GPIOA, 26, FUNCTION_3);
     set_gpio_function(GPIOA, 27, FUNCTION_3);
+    set_gpio_function(GPIOA, 16, FUNCTION_3);
+    set_gpio_function(GPIOA, 17, FUNCTION_3);
 }
 
 void board_clock_init(void)
@@ -33,6 +35,7 @@ void board_debug_uart_init(void)
     set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART3, true);
     board_uart3_pins_init();
     init_uart(UART_DEBUG_IDX, UARTTYPE_STD_SERIAL, rcc_get_clock(RCC_CLOCK_APB1), 115200);
+    init_uart(3, UARTTYPE_STD_SERIAL, rcc_get_clock(RCC_CLOCK_APB1), 115200);
     // 关闭缓冲，避免半主机影响
     setvbuf(stdout, NULL, _IONBF, 0);
 #else

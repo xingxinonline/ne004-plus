@@ -19,6 +19,7 @@
 #include "lvgl.h"
 /* App orchestration */
 #include "display_demo_app.h"
+#include "psram.h"
 #include "perf.h"
 
 // 1ms 节拍计时
@@ -50,8 +51,9 @@ int main(void)
     SystemCoreClockUpdate();
     if (SysTick_Config(SystemCoreClock / 1000U) != 0U) { printf("[S300][DisplayDemo][ERR] SysTick_Config failed!\r\n"); }
 
+    init_psram(4,1);
     rcc_init_mm_pll(8, 400, 0, 3, 2); /* 100MHz */
-    rcc_init_dsp_pll(8, 400, 0, 2, 1); /* 300MHz */
+    rcc_init_dsp_pll(6, 768, 0, 2, 2); /* 300MHz */
 
     /* App init: camera/video/mailbox/ui/eyes/face_tracker */
     display_demo_app_init(millis);
@@ -66,3 +68,4 @@ int main(void)
         g_cpu_in_idle = 0;
     }
 }
+ 

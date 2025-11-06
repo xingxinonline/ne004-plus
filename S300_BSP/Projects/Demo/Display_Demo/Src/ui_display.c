@@ -69,7 +69,7 @@ static const uint32_t REG_F0 = (DSP_VIDEO_SS_BASE + 0x50u);
 static const uint32_t REG_F1 = (DSP_VIDEO_SS_BASE + 0x54u);
 
 /* LVGL 局部渲染用的双draw buffer（约屏幕 1/5 高度，按需调整） */
-#define DRAWBUF_LINES     30u  /* 兼顾帧率与限制：128x30=3840 <= 4095，减少每帧 flush 次数 */
+#define DRAWBUF_LINES     15u  /* 兼顾帧率与限制：128x30=3840 <= 4095，减少每帧 flush 次数 */
 #define BYTES_PER_PIXEL   2u  /* RGB565 */
 /* LVGL 要求 buffer 指针满足特定对齐（通常>=8B），使用 LV_ATTRIBUTE_MEM_ALIGN 保证 */
 LV_ATTRIBUTE_MEM_ALIGN static uint16_t s_drawbuf1[DISP_IMAGE_WIDTH * DRAWBUF_LINES] __attribute__((aligned(8)));
@@ -88,7 +88,7 @@ static volatile uint32_t s_stat_cpu_fallbacks = 0;
 static uint32_t          s_stat_last_report_ms = 0;
 /* 是否在屏幕角落显示统计信息（默认关闭，可在编译时 -DUI_STAT_OVERLAY=1 打开） */
 #ifndef UI_STAT_OVERLAY
-#define UI_STAT_OVERLAY 1
+#define UI_STAT_OVERLAY 0
 #endif
 #if UI_STAT_OVERLAY
 static lv_obj_t *        s_stat_label = NULL;
@@ -330,7 +330,7 @@ static void lvgl_display_event_cb(lv_event_t * e)
                 lv_obj_set_style_bg_opa(s_stat_label, LV_OPA_10, 0);
                 lv_obj_set_style_bg_color(s_stat_label, lv_color_black(), 0);
                 /* 置于顶层对象树，通常已足够避免被覆盖 */
-                lv_obj_align(s_stat_label, LV_ALIGN_TOP_LEFT, 125, 3);
+                lv_obj_align(s_stat_label, LV_ALIGN_TOP_LEFT, 225, 5);
 #if UI_STAT_VERTICAL
                 /* 竖向显示（从上到下）：将标签整体逆时针旋转 90 度，并以左上角为旋转枢轴 */
                 /* 注意：需要 LV_USE_TRANSFORM 使能；若未使能则此设置无效但不影响显示 */
@@ -358,12 +358,13 @@ static void lvgl_display_event_cb(lv_event_t * e)
 }
 
 static void fill_buffer(volatile uint16_t *frame,
-                        volatile uint8_t  *alpha,
+                        volatile uint16_t *alpha,
                         size_t pixel_count,
                         uint16_t color,
-                        uint8_t alpha_value)
+                        uint16_t alpha_value)
 {
-    for (size_t i = 0; i < pixel_count; ++i) { frame[i] = color; alpha[i] = alpha_value; }
+    for (size_t i = 0; i < pixel_count; ++i) { frame[i] = color; }
+    for (size_t i = 0; i < pixel_count / 2; ++i) { alpha[i] = alpha_value; }
 }
 
 static void lvgl_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map)
@@ -438,8 +439,8 @@ lv_display_t * ui_display_init(void)
     UI_LOGI("INIT", "fb0=%p fb1=%p alpha0=%p alpha1=%p", s_f0, s_f1, s_a0, s_a1);
 
     /* Prepare initial frame buffers: white canvas */
-    fill_buffer(f0, a0, pixels, 0xFFFFu, 0xAAu);
-    fill_buffer(f1, a1, pixels, 0xFFFFu, 0xAAu);
+    fill_buffer(f0, (uint16_t *)a0, pixels, 0xFFFFu, 0xAAAAu);
+    fill_buffer(f1, (uint16_t *)a1, pixels, 0xFFFFu, 0xAAAAu);
 
     /* 初始显示 F0（front=0），渲染写入将落到 F1（back） */
     REG32(REG_F0) = 1u;

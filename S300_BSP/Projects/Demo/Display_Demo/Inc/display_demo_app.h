@@ -23,6 +23,8 @@ void display_demo_app_init(uint32_t (*get_millis)(void));
 /* 主循环中的周期轮询（人脸追踪+LVGL定时器处理）。 */
 void display_demo_app_tick(void);
 
+void *embedded_memset(void *dest, int value, uint32_t count);
+
 #ifdef __cplusplus
 }
 #endif

@@ -7,10 +7,10 @@
 #include "camera_ov5640.h"
 
 #ifndef CAM_RST_PIN
-#define CAM_RST_PIN  15u  /* GPIOA15 */
+#define CAM_RST_PIN  10u  /* GPIOA15 */
 #endif
 #ifndef CAM_PWDN_PIN
-#define CAM_PWDN_PIN 6u   /* GPIOA6  */
+#define CAM_PWDN_PIN 19u   /* GPIOA6  */
 #endif
 
 static void cam_gpio_init(void)

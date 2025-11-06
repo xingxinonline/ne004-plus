@@ -47,7 +47,7 @@
  * (see video.h: DISP_WFRAME*_ADDR = 0x44080000 - 128*160*7 = 0x4405D000).
  */
 #define LV_USE_STDLIB_MALLOC  LV_STDLIB_BUILTIN
-#define LV_MEM_SIZE           (128U * 1024U)
+#define LV_MEM_SIZE           (256 * 1024U)
 #define LVGL_MEM_ADDR         (0x44040000U)
 /* LVGL expects LV_MEM_ADR for fixed heap placement when using built-in malloc */
 #define LV_MEM_ADR            (LVGL_MEM_ADDR)

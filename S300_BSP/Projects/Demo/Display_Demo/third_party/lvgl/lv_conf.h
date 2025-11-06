@@ -22,6 +22,11 @@
 /* When logging is off, set level to NONE to avoid redefinition warnings */
 #define LV_LOG_LEVEL          LV_LOG_LEVEL_NONE
 
+/* Enable object transform (rotation/scale) for overlay vertical text, etc. */
+#ifndef LV_USE_TRANSFORM
+#define LV_USE_TRANSFORM      1
+#endif
+
 /* Enable GIF decoder and widget */
 #ifndef LV_USE_GIF
 #define LV_USE_GIF            1
@@ -42,7 +47,7 @@
  * (see video.h: DISP_WFRAME*_ADDR = 0x44080000 - 128*160*7 = 0x4405D000).
  */
 #define LV_USE_STDLIB_MALLOC  LV_STDLIB_BUILTIN
-#define LV_MEM_SIZE           (112U * 1024U)
+#define LV_MEM_SIZE           (128U * 1024U)
 #define LVGL_MEM_ADDR         (0x44040000U)
 /* LVGL expects LV_MEM_ADR for fixed heap placement when using built-in malloc */
 #define LV_MEM_ADR            (LVGL_MEM_ADDR)

@@ -462,7 +462,7 @@ void init_high_camera_st77_lcd(emMM mm,emCameraFormatPro cameraPro,emMMProcessPr
     REG32(DSP_VIDEO_SS_BASE + 0x58) = (SNAP_IMAGE_WIDTH | (SNAP_IMAGE_HEIGHT << 16));
     REG32(DSP_VIDEO_SS_BASE + 0x5c) = RD_SOURCE_FRAME_START_X | (RD_SOURCE_FRAME_START_Y << 16);
     REG32(DSP_VIDEO_SS_BASE + 0x60) = 0x0;//0;
-    REG32(DSP_VIDEO_SS_BASE + 0x70) = 0x1;//1;
+    // REG32(DSP_VIDEO_SS_BASE + 0x70) = 0x1;//1;
     /* spi init */
     REG32(DSP_VIDEO_SS_BASE + 0x100) = 0xFFFDFFFE; 
     REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x072204E0; 
@@ -521,6 +521,6 @@ void init_high_camera_st77_lcd(emMM mm,emCameraFormatPro cameraPro,emMMProcessPr
     REG32(DSP_VIDEO_SS_BASE + 0x100) = 0x0;
     REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x29;
     REG32(DSP_VIDEO_SS_BASE + 0x1c0) = (0x1 | (11 << 23) | (1 << 29));
-    REG32(DSP_VIDEO_SS_BASE + 0x1e0) = 0x1;
+    // REG32(DSP_VIDEO_SS_BASE + 0x1e0) = 0x1;
     
 }

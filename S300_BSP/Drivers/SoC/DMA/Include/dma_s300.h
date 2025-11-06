@@ -118,6 +118,9 @@ typedef struct
 #define DMA_CTL_SINC_Pos         9
 #define DMA_CTL_DST_MSIZE_Pos    11
 #define DMA_CTL_SRC_MSIZE_Pos    14
+/* Enable gather/scatter features */
+#define DMA_CTL_SRC_GATHER_EN_Pos 17
+#define DMA_CTL_DST_SCATTER_EN_Pos 18
 #define DMA_CTL_TT_FC_Pos        20
 #define DMA_CTL_LLP_DST_EN_Pos   27
 #define DMA_CTL_LLP_SRC_EN_Pos   28

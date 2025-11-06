@@ -19,14 +19,21 @@
 #include "lvgl.h"
 /* App orchestration */
 #include "display_demo_app.h"
+#include "perf.h"
 
 // 1ms 节拍计时
 static volatile uint32_t g_tick_ms = 0;
+volatile uint32_t g_cpu_total_ticks = 0;
+volatile uint32_t g_cpu_idle_ticks = 0;
+volatile uint8_t  g_cpu_in_idle = 0;
 
 void SysTick_Handler(void)
 {
     g_tick_ms++;
     lv_tick_inc(1);
+    /* CPU usage metering: 1ms tick granularity */
+    g_cpu_total_ticks++;
+    if (g_cpu_in_idle) g_cpu_idle_ticks++;
 }
 
 static inline uint32_t millis(void)
@@ -52,7 +59,10 @@ int main(void)
     while (1)
     {
         display_demo_app_tick();
+        /* Mark idle section for CPU usage metering (spin-wait ~5ms) */
+        g_cpu_in_idle = 1;
         uint32_t t0 = millis();
-        while ((uint32_t)(millis() - t0) < 5u) { /* spin */ }
+        while ((uint32_t)(millis() - t0) < 5u) { /* idle spin */ }
+        g_cpu_in_idle = 0;
     }
 }

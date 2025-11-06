@@ -15,7 +15,7 @@ extern "C" {
 
 // 允许用户覆盖调试 UART 索引
 #ifndef BOARD_UART_DEBUG_IDX
-#define BOARD_UART_DEBUG_IDX 3u
+#define BOARD_UART_DEBUG_IDX 1u
 #endif
 
 // 初始化板级系统时钟（切换 CM4 到 PLL 等），需在 UART 之前调用

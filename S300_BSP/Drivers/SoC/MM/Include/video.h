@@ -21,36 +21,34 @@ typedef uint8_t UINT8;
 #define BINNING_SIZE            (1) //binning = 4 @ Sensor image size (1280*1920) 尽量binning到足够小
 
 /* binning */
-#define BINNING_IMAGE_WIDTH         (144)
-#define BINNING_IMAGE_HEIGHT        (180)
+#define BINNING_IMAGE_WIDTH         (288)
+#define BINNING_IMAGE_HEIGHT        (360)
 /* sensor */
 #define SENSOR_IMAGE_WIDTH          (BINNING_IMAGE_WIDTH * (1U << BINNING_SIZE))
 #define SENSOR_IMAGE_HEIGHT         (BINNING_IMAGE_HEIGHT * (1U << BINNING_SIZE))
 /* downscale */
-#define DOWNSCALE_IMAGE_WIDTH       (128)
-#define DOWNSCALE_IMAGE_HEIGHT      (160)
+#define DOWNSCALE_IMAGE_WIDTH       (240)
+#define DOWNSCALE_IMAGE_HEIGHT      (320)
 /* display  */
 #define DISP_START_X                (0)
 #define DISP_START_Y                (0)
-#define DISP_IMAGE_WIDTH            (128)
-#define DISP_IMAGE_HEIGHT           (160)
+#define DISP_IMAGE_WIDTH            (240)
+#define DISP_IMAGE_HEIGHT           (320)
 /* snap */
-#define SNAP_IMAGE_WIDTH            (128)
-#define SNAP_IMAGE_HEIGHT           (160)
+#define SNAP_IMAGE_WIDTH            (240)
+#define SNAP_IMAGE_HEIGHT           (320)
 
 #define BINNING_LINE_MAX_SIZE       (1280)
 #define DOWNSCALE_FACTOR            (8192)
 
-#define OFFLINE_IMAGE_BASE_ADDRESS  (0x44000000)
+// #define OFFLINE_IMAGE_BASE_ADDRESS  (0x44000000)
 
-/* SRAM0 */
-#define DISP_RALPHA0_ADDR           (0x44040000 - (DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT * 1));//0x44060000;//0x80250000;
-#define DISP_RALPHA1_ADDR           (0x44040000 - (DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT * 1));//0x44060000;//0x80350000;
-/* SRAM1 */
-#define DISP_RFRAME0_ADDR           (0x44080000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 2));//0x44035000;//0x80200000
-#define DISP_RFRAME1_ADDR           (0x44080000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 4));//0x44035000;//0x80300000;
-#define DISP_WFRAME0_ADDR           (0x44080000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 6));//0x80000000;
-#define DISP_WFRAME1_ADDR           (0x44080000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 6));//0x80100000;
+#define DISP_WFRAME0_ADDR           (0x80000000U)//0x80000000;
+#define DISP_WFRAME1_ADDR           (0x80000000U)//0x80100000;
+#define DISP_RFRAME0_ADDR           (0x80000000U + (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 2))//0x44035000;//0x80200000
+#define DISP_RFRAME1_ADDR           (0x80000000U + (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 4))//0x44035000;//0x80300000;
+#define DISP_RALPHA0_ADDR           (0x80000000U + (DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT * 6))//0x44060000;//0x80250000;
+#define DISP_RALPHA1_ADDR           (0x80000000U + (DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT * 6))//0x44060000;//0x80350000;
 
 // 定义结构体
 typedef struct

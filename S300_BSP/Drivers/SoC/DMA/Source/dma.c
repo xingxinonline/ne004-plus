@@ -202,3 +202,38 @@ void dma_set_address(dma_idx_t d, uint8_t ch, uint32_t src, uint32_t dst)
     C->DAR = dst;
 }
 
+/* Helpers to pack SGR/DSR fields: [31:20]=count, [19:0]=interval */
+static inline uint32_t dma_pack_sg(uint32_t cnt, uint32_t interval)
+{
+    return ((cnt & 0xFFFu) << 20) | (interval & 0xFFFFFu);
+}
+
+void dma_set_source_gather(dma_idx_t d, uint8_t ch, uint32_t sgc, uint32_t sgi)
+{
+    if (ch >= 8) return;
+    S300_DMA_TypeDef *D = dma_get(d);
+    S300_DMA_Channel_TypeDef *C = &D->CH[ch];
+    /* For safe update, disable channel before programming SGR */
+    ch_disable(D, ch);
+    C->SGR = dma_pack_sg(sgc, sgi);
+    /* Enable/disable Source Gather by CTL_L bit when parameters are non-zero */
+    uint32_t ctl = C->CTL_L;
+    if (sgc != 0u && sgi != 0u) ctl |= (1u << DMA_CTL_SRC_GATHER_EN_Pos);
+    else                         ctl &= ~(1u << DMA_CTL_SRC_GATHER_EN_Pos);
+    C->CTL_L = ctl;
+}
+
+void dma_set_dest_scatter(dma_idx_t d, uint8_t ch, uint32_t dsc, uint32_t dsi)
+{
+    if (ch >= 8) return;
+    S300_DMA_TypeDef *D = dma_get(d);
+    S300_DMA_Channel_TypeDef *C = &D->CH[ch];
+    ch_disable(D, ch);
+    C->DSR = dma_pack_sg(dsc, dsi);
+    /* Enable/disable Destination Scatter by CTL_L bit when parameters are non-zero */
+    uint32_t ctl = C->CTL_L;
+    if (dsc != 0u && dsi != 0u) ctl |= (1u << DMA_CTL_DST_SCATTER_EN_Pos);
+    else                         ctl &= ~(1u << DMA_CTL_DST_SCATTER_EN_Pos);
+    C->CTL_L = ctl;
+}
+

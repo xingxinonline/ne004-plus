@@ -40,6 +40,16 @@ typedef struct
     uint32_t DSTAT; /* minimize to match variant without SSTAT field */
 } dma_lli_t;
 
+/*
+ * LLI usage notes:
+ * - BLOCK_TS is limited by hardware field width (driver programs 12 bits -> 0xFFF transfers per block).
+ *   Max bytes per block = 0xFFF * bytes_per_transfer, where bytes_per_transfer is 1/2/4 for 8/16/32-bit width.
+ * - In LLI mode, after each block completes, CTL is reloaded from the LLI entry. Therefore, if you want
+ *   to continue following LLP, you MUST set CTL_L.LLP_SRC_EN and CTL_L.LLP_DST_EN inside EACH LLI entry.
+ * - Align addresses and length to the transfer width (1/2/4). Many controllers also require LLP address
+ *   alignment (e.g., 8-byte). Provide properly aligned dma_lli_t memory.
+ */
+
 int dma_init(dma_idx_t d);
 int dma_set_std(dma_idx_t d, uint8_t ch, uint32_t src, uint32_t dst, uint32_t len, dma_width_t width);
 void dma_set_link_unit(dma_lli_t *lli, uint32_t src, uint32_t dst, uint32_t len, dma_width_t width);
@@ -55,6 +65,33 @@ bool dma_is_busy(dma_idx_t d, uint8_t ch);
 void dma_set_reload(dma_idx_t d, uint8_t ch, bool s_reload, bool d_reload);
 void dma_stop(dma_idx_t d, uint8_t ch);
 void dma_set_address(dma_idx_t d, uint8_t ch, uint32_t src, uint32_t dst);
+
+/* Scatter/Gather configuration
+ * SGRx: [31:20] SGC (source gather count), [19:0] SGI (source gather interval)
+ * DSRx: [31:20] DSC (destination scatter count), [19:0] DSI (destination scatter interval)
+ * Units are in transfers of CTLx.SRC_TR_WIDTH or CTLx.DST_TR_WIDTH respectively.
+ * Passing count=0 or interval=0 disables the feature on the respective side.
+ */
+void dma_set_source_gather(dma_idx_t d, uint8_t ch, uint32_t sgc, uint32_t sgi);
+void dma_set_dest_scatter(dma_idx_t d, uint8_t ch, uint32_t dsc, uint32_t dsi);
+
+/* -------- Convenience helpers for large memcpy using LLI chaining --------
+ * API contract:
+ * - Caller provides an array of LLI entries and its capacity.
+ * - Function will split the [src,dst,len] into multiple blocks (<= BLOCK_TS limit) and build a chain.
+ * - It sets up the channel (M2M, INC/INC, widths), programs LLP, starts the transfer.
+ * - Non-blocking variant returns immediately; use dma_is_busy() to poll completion.
+ * - Returns 0 on success; negative on errors:
+ *     -1: invalid channel
+ *     -2: alignment error (src/dst/len not aligned to width)
+ *     -3: insufficient LLI capacity
+ *     -4: LLI base alignment requirement not met (e.g., not 8-byte aligned)
+ */
+uint32_t dma_calc_lli_count(uint32_t len, dma_width_t width);
+int dma_memcpy_lli(dma_idx_t d, uint8_t ch, uint32_t src, uint32_t dst, uint32_t len,
+                   dma_width_t width, dma_lli_t *llis, uint32_t lli_capacity);
+int dma_memcpy_lli_blocking(dma_idx_t d, uint8_t ch, uint32_t src, uint32_t dst, uint32_t len,
+                            dma_width_t width, dma_lli_t *llis, uint32_t lli_capacity);
 
 /* Legacy alias wrappers to ease porting */
 typedef enum { EM_DMA0 = 0, EM_DMA1 = 1 } emDMA;
@@ -123,6 +160,32 @@ static inline void set_dma_stop(emDMA dma, uint8_t ch)
 static inline void set_dma_std_address(emDMA dma, uint8_t ch, uint32_t s, uint32_t d)
 {
     dma_set_address((dma_idx_t)dma, ch, s, d);
+}
+
+/* Legacy-friendly wrappers for scatter/gather */
+static inline void set_dma_src_gather(emDMA dma, uint8_t ch, uint32_t count, uint32_t interval)
+{
+    dma_set_source_gather((dma_idx_t)dma, ch, count, interval);
+}
+static inline void set_dma_dst_scatter(emDMA dma, uint8_t ch, uint32_t count, uint32_t interval)
+{
+    dma_set_dest_scatter((dma_idx_t)dma, ch, count, interval);
+}
+
+/* Legacy-friendly wrappers for LLI memcpy */
+static inline uint32_t calc_dma_lli_count(uint32_t len, emDMATRWIDTH w)
+{
+    return dma_calc_lli_count(len, (dma_width_t)w);
+}
+static inline int set_dma_memcpy_lli(emDMA dma, uint8_t ch, uint32_t src, uint32_t dst, uint32_t len,
+                                     emDMATRWIDTH w, dma_lli_t *llis, uint32_t lli_capacity)
+{
+    return dma_memcpy_lli((dma_idx_t)dma, ch, src, dst, len, (dma_width_t)w, llis, lli_capacity);
+}
+static inline int set_dma_memcpy_lli_blocking(emDMA dma, uint8_t ch, uint32_t src, uint32_t dst, uint32_t len,
+                                              emDMATRWIDTH w, dma_lli_t *llis, uint32_t lli_capacity)
+{
+    return dma_memcpy_lli_blocking((dma_idx_t)dma, ch, src, dst, len, (dma_width_t)w, llis, lli_capacity);
 }
 
 /* Legacy handshake IDs mapped to CFG_H src/dst peripheral select. Keep numeric values consistent with legacy reference. */

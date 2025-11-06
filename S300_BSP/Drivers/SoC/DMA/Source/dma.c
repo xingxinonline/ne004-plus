@@ -202,3 +202,119 @@ void dma_set_address(dma_idx_t d, uint8_t ch, uint32_t src, uint32_t dst)
     C->DAR = dst;
 }
 
+/* Helpers to pack SGR/DSR fields: [31:20]=count, [19:0]=interval */
+static inline uint32_t dma_pack_sg(uint32_t cnt, uint32_t interval)
+{
+    return ((cnt & 0xFFFu) << 20) | (interval & 0xFFFFFu);
+}
+
+void dma_set_source_gather(dma_idx_t d, uint8_t ch, uint32_t sgc, uint32_t sgi)
+{
+    if (ch >= 8) return;
+    S300_DMA_TypeDef *D = dma_get(d);
+    S300_DMA_Channel_TypeDef *C = &D->CH[ch];
+    /* For safe update, disable channel before programming SGR */
+    ch_disable(D, ch);
+    C->SGR = dma_pack_sg(sgc, sgi);
+    /* Enable/disable Source Gather by CTL_L bit when parameters are non-zero */
+    uint32_t ctl = C->CTL_L;
+    if (sgc != 0u && sgi != 0u) ctl |= (1u << DMA_CTL_SRC_GATHER_EN_Pos);
+    else                         ctl &= ~(1u << DMA_CTL_SRC_GATHER_EN_Pos);
+    C->CTL_L = ctl;
+}
+
+void dma_set_dest_scatter(dma_idx_t d, uint8_t ch, uint32_t dsc, uint32_t dsi)
+{
+    if (ch >= 8) return;
+    S300_DMA_TypeDef *D = dma_get(d);
+    S300_DMA_Channel_TypeDef *C = &D->CH[ch];
+    ch_disable(D, ch);
+    C->DSR = dma_pack_sg(dsc, dsi);
+    /* Enable/disable Destination Scatter by CTL_L bit when parameters are non-zero */
+    uint32_t ctl = C->CTL_L;
+    if (dsc != 0u && dsi != 0u) ctl |= (1u << DMA_CTL_DST_SCATTER_EN_Pos);
+    else                         ctl &= ~(1u << DMA_CTL_DST_SCATTER_EN_Pos);
+    C->CTL_L = ctl;
+}
+
+/* ---------------------- LLI memcpy helpers implementation ---------------------- */
+static inline uint32_t dma_tr_bytes(dma_width_t width)
+{
+    return (width == DMA_WIDTH_32) ? 4u : (width == DMA_WIDTH_16 ? 2u : 1u);
+}
+
+uint32_t dma_calc_lli_count(uint32_t len, dma_width_t width)
+{
+    uint32_t trb = dma_tr_bytes(width);
+    if (trb == 0u) return 0u;
+    uint32_t max_block = 0xFFFu * trb;
+    if (len == 0u) return 0u;
+    return (len + max_block - 1u) / max_block;
+}
+
+static inline int dma_check_align(uint32_t src, uint32_t dst, uint32_t len, uint32_t trb)
+{
+    uint32_t mask = trb - 1u;
+    if (((src | dst | len) & mask) != 0u) return -2; /* alignment error */
+    return 0;
+}
+
+static inline int dma_check_lli_align(dma_lli_t *llis)
+{
+    /* Many controllers require LLP address alignment, commonly 8 or 16. We enforce 8 here. */
+    if ((((uintptr_t)llis) & 0x7u) != 0u) return -4;
+    return 0;
+}
+
+int dma_memcpy_lli(dma_idx_t d, uint8_t ch, uint32_t src, uint32_t dst, uint32_t len,
+                   dma_width_t width, dma_lli_t *llis, uint32_t lli_capacity)
+{
+    if (ch >= 8) return -1;
+    if (len == 0u) return 0;
+    int rc;
+    uint32_t trb = dma_tr_bytes(width);
+    if ((rc = dma_check_align(src, dst, len, trb)) != 0) return rc;
+    if ((rc = dma_check_lli_align(llis)) != 0) return rc;
+
+    uint32_t max_block = 0xFFFu * trb;
+    uint32_t need = dma_calc_lli_count(len, width);
+    if (need > lli_capacity) return -3;
+
+    /* Baseline config: program CFG/CTL fields; actual block SAR/DAR/CTL will be from LLI */
+    (void)dma_set_std(d, ch, src, dst, (len >= trb ? trb : len), width);
+    dma_set_increment(d, ch, DMA_ADDR_INC, DMA_ADDR_INC);
+    dma_set_width(d, ch, width, width);
+    dma_set_transfer_type(d, ch, DMA_TR_TYPE_M2M_FD);
+
+    uint32_t remaining = len;
+    uint32_t offset = 0u;
+    for (uint32_t i = 0; i < need; ++i)
+    {
+        uint32_t blk = (remaining > max_block) ? max_block : remaining;
+        /* blk already aligned because len was aligned and max_block is multiple of trb */
+        dma_set_link_unit(&llis[i], src + offset, dst + offset, blk, width);
+        /* Ensure LLP continues across entries */
+        llis[i].CTL_L |= (1u << DMA_CTL_LLP_DST_EN_Pos) | (1u << DMA_CTL_LLP_SRC_EN_Pos);
+        llis[i].LLP = 0u; /* fill later */
+        offset += blk;
+        remaining -= blk;
+    }
+    for (uint32_t i = 0; i + 1 < need; ++i)
+    {
+        llis[i].LLP = (uint32_t)(uintptr_t)&llis[i + 1];
+    }
+
+    if (dma_set_link(d, ch, &llis[0]) != 0) return -1;
+    dma_start(d, ch);
+    return 0;
+}
+
+int dma_memcpy_lli_blocking(dma_idx_t d, uint8_t ch, uint32_t src, uint32_t dst, uint32_t len,
+                            dma_width_t width, dma_lli_t *llis, uint32_t lli_capacity)
+{
+    int rc = dma_memcpy_lli(d, ch, src, dst, len, width, llis, lli_capacity);
+    if (rc != 0) return rc;
+    while (dma_is_busy(d, ch)) { /* busy wait */ }
+    return 0;
+}
+

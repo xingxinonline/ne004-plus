@@ -4,6 +4,7 @@
 #include "mailbox.h"
 #include "video.h"
 #include "eyes.h"
+#include "ui_display.h"
 #include "face_tracker.h"
 
 /* FaceRect from DSP shared memory (base + offset) */
@@ -100,11 +101,13 @@ void face_tracker_poll(void)
             printf("[S300][FACE] present start at %lums\r\n", (unsigned long)s_face_present_since);
 #endif
         }
-        if (!s_face_confirmed) {
+    if (!s_face_confirmed) {
             uint32_t held = (uint32_t)(now_ms - s_face_present_since);
             if (held >= FACE_PRESENCE_CONFIRM_MS) {
                 s_face_confirmed = 1;
                 eyes_blink_hide_and_restore();
+        /* 面部确认出现：立即请求一次界面刷新 */
+        ui_request_refresh();
 #if FACE_DEBUG_CONFIRM
                 printf("[S300][FACE] confirmed after %lums (start %lums -> now %lums)\r\n",
                        (unsigned long)held, (unsigned long)s_face_present_since, (unsigned long)now_ms);
@@ -195,6 +198,8 @@ void face_tracker_poll(void)
                 s_last_idle_log_ms = now2;
             }
             eyes_blink_show();
+            /* 面部消失进入 idle：立即请求一次界面刷新 */
+            ui_request_refresh();
             s_face_present = 0; s_face_confirmed = 0;
 #if FACE_DEBUG_CONFIRM
             printf("[S300][FACE] reset by idle at %lums\r\n", (unsigned long)now2);

@@ -22,6 +22,13 @@ lv_display_t * ui_display_init(void);
 /* 设置活动屏幕背景色（24位RGB，例如 0xRRGGBB）。 */
 void ui_display_set_bg_color(uint32_t rgb24);
 
+/* 主动请求一次轻量刷新：
+ * - 优先无效化顶层统计标签（若存在），触发最小矩形刷新；
+ * - 否则无效化当前屏幕，实现兜底刷新。
+ * 适用于外部事件（如人脸“出现/消失”）需要立即呈现的场景。
+ */
+void ui_request_refresh(void);
+
 #ifdef __cplusplus
 }
 #endif

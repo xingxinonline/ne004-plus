@@ -461,6 +461,17 @@ void ui_display_set_bg_color(uint32_t rgb24)
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 }
 
+void ui_request_refresh(void)
+{
+#if UI_STAT_OVERLAY
+    if (s_stat_label) {
+        lv_obj_invalidate(s_stat_label);
+        return;
+    }
+#endif
+    lv_obj_invalidate(lv_screen_active());
+}
+
     /* DMA0 IRQ：结束一次矩形搬运；单buffer：仅 flush_ready，不做切换 */
 void DMA0_IRQHandler(void)
 {

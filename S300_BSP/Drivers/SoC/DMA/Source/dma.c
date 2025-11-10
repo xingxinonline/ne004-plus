@@ -10,12 +10,14 @@ int dma_init(dma_idx_t d)
     S300_DMA_TypeDef *D = dma_get(d);
     /* Enable controller */
     D->DmaCfgReg = 0u; /* keep disabled until start */
-    /* Mask all interrupts for safety (legacy used 0xFF00 to mask channels) */
-    D->MaskTfr = 0xFF00u;
-    D->MaskBlock = 0xFF00u;
-    D->MaskSrcTran = 0xFF00u;
-    D->MaskDstTran = 0xFF00u;
-    D->MaskErr = 0xFF00u;
+    /* 根据手册：INT_MASK 位 = 0 表示 Mask(屏蔽)，=1 表示 Unmask(允许)。INT_MASK_WE 在 [15:8]。
+     * 初始化阶段全部屏蔽：写入 WE 位 + 数据位为 0。使用 0xFF00（WE=1，DATA=0）。
+     */
+    D->MaskTfr    = 0xFF00u; /* 所有通道传输完成中断屏蔽 */
+    D->MaskBlock  = 0xFF00u; /* 所有通道 Block 完成中断屏蔽 */
+    D->MaskSrcTran= 0xFF00u;
+    D->MaskDstTran= 0xFF00u;
+    D->MaskErr    = 0xFF00u;
     /* Clear any pending */
     D->ClearTfr = 0xFFu;
     D->ClearBlock = 0xFFu;
@@ -165,9 +167,10 @@ void dma_set_interrupt(dma_idx_t d, uint8_t ch, dma_int_t type, bool en)
     /* Mask registers use write-enable in [15:8]; write desired value in [7:0] */
     S300_DMA_TypeDef *D = dma_get(d);
     uint32_t we = (1u << ch) << 8;
+    /* 手册定义：INT_MASK 位=0 表示 Mask(屏蔽)，=1 表示 Unmask(允许)。因此 en=true 要写 1。 */
     uint32_t val = en ? (1u << ch) : 0u;
-    if (type & DMA_INT_TFR)     D->MaskTfr    = we | val;
-    if (type & DMA_INT_BLOCK)   D->MaskBlock  = we | val;
+    if (type & DMA_INT_TFR)     D->MaskTfr     = we | val;
+    if (type & DMA_INT_BLOCK)   D->MaskBlock   = we | val;
     if (type & DMA_INT_SRCTRAN) D->MaskSrcTran = we | val;
     if (type & DMA_INT_DSTTRAN) D->MaskDstTran = we | val;
 }

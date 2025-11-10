@@ -47,4 +47,6 @@ void board_init(void)
 {
     board_clock_init();
     board_debug_uart_init();
+    /* 统一安全网：确保进入各 Demo 前全局中断已开启（防止早期启动路径或引导阶段残留 PRIMASK=1）。*/
+    __enable_irq();
 }

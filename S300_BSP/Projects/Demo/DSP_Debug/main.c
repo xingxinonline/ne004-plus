@@ -1,0 +1,520 @@
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include <stdlib.h>
+#include "s300.h"
+#include "rcc.h"
+#include "board.h"
+#include "mailbox.h"
+#include "psram.h"
+#include "uart.h"
+#include "dsp_protocol.h"
+
+/* --- UART Ring Buffer --- */
+#define RX_BUFFER_SIZE 256
+static volatile uint8_t rx_buffer[RX_BUFFER_SIZE];
+static volatile uint32_t rx_head = 0;
+static volatile uint32_t rx_tail = 0;
+
+/* --- Shared Message Buffer --- */
+/* Allocated in PSRAM (0x80400000) to ensure DSP access */
+#define DSP_SHARED_MSG_ADDR 0x80400000
+
+void UART3_IRQHandler(void)
+{
+    S300_UART_TypeDef *U = UART3;
+    uint32_t iir = U->IIR_FCR;
+    uint32_t int_id = iir & 0x0F;
+    
+    /* RX Data Available (0x04) or Character Timeout (0x0C) */
+    if ((int_id == 0x04) || (int_id == 0x0C))
+    {
+        while (U->LSR & 0x01)
+        {
+            uint8_t data = (uint8_t)(U->RBR_THR_DLL & 0xFF);
+            uint32_t next_head = (rx_head + 1) % RX_BUFFER_SIZE;
+            if (next_head != rx_tail)
+            {
+                rx_buffer[rx_head] = data;
+                rx_head = next_head;
+            }
+        }
+    }
+}
+
+static int uart_getchar_noblock(uint8_t *c)
+{
+    if (rx_head == rx_tail) return 0;
+    *c = rx_buffer[rx_tail];
+    rx_tail = (rx_tail + 1) % RX_BUFFER_SIZE;
+    return 1;
+}
+
+/* --- SysTick --- */
+static volatile uint32_t g_tick_ms = 0;
+void SysTick_Handler(void)
+{
+    g_tick_ms++;
+}
+static uint32_t millis(void)
+{
+    return g_tick_ms;
+}
+
+/* --- Mailbox Helper --- */
+static int mb_send_addr_wait(uint32_t addr)
+{
+    /* Ensure data is written to memory before notifying DSP */
+    __DSB();
+    
+    /* Debug: Print what we are sending */
+    dsp_msg_t *msg = (dsp_msg_t *)addr;
+    printf("[M4] Sending Mailbox: Addr=0x%08X, Type=0x%08X\n", (unsigned int)addr, (unsigned int)msg->type);
+
+    /* Simple blocking send with timeout */
+    uint32_t t0 = millis();
+    while (write_mailbox(MAILBOX_BASE, addr) != 0)
+    {
+        if ((millis() - t0) > 100) /* 100ms timeout */
+        {
+            printf("[ERR] Mailbox Send Timeout (0x%08X)\n", (unsigned int)addr);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+/* --- Feature Storage (Ring Buffer for up to 10 targets) --- */
+#define MAX_TARGETS 10
+static int8_t target_features[MAX_TARGETS][128];
+static int target_count = 0;      /* Number of stored targets (0-10) */
+static int target_write_idx = 0;  /* Next write position (FIFO) */
+static int8_t compare_feature[128];
+static bool has_compare = false;
+
+typedef enum { EXTRACT_NONE, EXTRACT_TARGET, EXTRACT_COMPARE } extract_type_t;
+static volatile extract_type_t g_extract_type = EXTRACT_NONE;
+
+static int calculate_single_similarity(int8_t *feat1, int8_t *feat2) {
+    int32_t dot = 0;
+    for(int i=0; i<128; i++) {
+        dot += (int32_t)feat1[i] * (int32_t)feat2[i];
+    }
+    int score = (dot * 100) / 16129;
+    if (score < 0) score = 0; 
+    if (score > 100) score = 100;
+    return score;
+}
+
+static void calculate_similarity(void) {
+    if (target_count == 0 || !has_compare) {
+        printf("[SIM] No targets registered!\n");
+        return;
+    }
+    
+    int best_score = -1;
+    int best_id = -1;
+    
+    for(int t=0; t<target_count; t++) {
+        int score = calculate_single_similarity(target_features[t], compare_feature);
+        if (score > best_score) {
+            best_score = score;
+            best_id = t;
+        }
+    }
+    
+    printf("[SIM] Best Match: ID=%d, Score=%d (of %d targets)\n", best_id, best_score, target_count);
+}
+
+static char file_transfer_mode(void)
+{
+    printf("Starting File Transfer Mode...\n");
+    printf("Waiting for 'T' command from PC tool...\n");
+    
+    /* Small delay to ensure any pending RX chars (like \n) arrive before we flush */
+    for(volatile int i=0; i<10000; i++);
+
+    /* Disable UART Interrupt */
+    NVIC_DisableIRQ(UART3_IRQn);
+    
+    /* Flush RX FIFO */
+    while (UART3->LSR & 1) {
+        (void)UART3->RBR_THR_DLL;
+    }
+
+    /* Simple polling receive */
+    uint8_t cmd = 0;
+    while (!(UART3->LSR & 1));
+    cmd = (uint8_t)(UART3->RBR_THR_DLL & 0xFF);
+
+    uint32_t write_addr = DSP_SRAM0_BASE;
+    if (cmd == 'T') {
+        write_addr = DSP_SRAM0_BASE;
+    } else if (cmd == 'C') {
+        write_addr = DSP_SRAM0_BASE;
+    } else {
+        printf("Invalid command: 0x%02X\n", cmd);
+        goto exit;
+    }
+    
+    /* ACK command */
+    while (!(UART3->LSR & 0x40));
+    UART3->RBR_THR_DLL = 'K';
+    while (!(UART3->LSR & 0x40));
+
+    /* Receive size (4 bytes) */
+    uint32_t file_size = 0;
+    uint8_t *p_size = (uint8_t*)&file_size;
+    for(int i=0; i<4; i++) {
+        while (!(UART3->LSR & 1));
+        p_size[i] = (uint8_t)(UART3->RBR_THR_DLL & 0xFF);
+    }
+    
+    /* ACK erase (simulated) */
+    while (!(UART3->LSR & 0x40));
+    UART3->RBR_THR_DLL = 'K';
+    while (!(UART3->LSR & 0x40));
+
+    /* Receive Data */
+    uint32_t received = 0;
+    static uint8_t chunk_buf[4096]; 
+
+    while (received < file_size) {
+        uint32_t chunk_size = file_size - received;
+        if (chunk_size > 4096) chunk_size = 4096;
+        
+        for(uint32_t i=0; i<chunk_size; i++) {
+            while (!(UART3->LSR & 1));
+            chunk_buf[i] = (uint8_t)(UART3->RBR_THR_DLL & 0xFF);
+        }
+        
+        /* Write to DSP SRAM0 */
+        memcpy((void*)write_addr, chunk_buf, chunk_size);
+        
+        write_addr += chunk_size;
+        received += chunk_size;
+        
+        /* ACK chunk */
+        while (!(UART3->LSR & 0x40));
+        UART3->RBR_THR_DLL = 'K';
+        while (!(UART3->LSR & 0x40));
+    }
+    
+    printf("Transfer Complete. %u bytes written to 0x%08X\n", (unsigned int)received, (unsigned int)DSP_SRAM0_BASE);
+
+    /* Reset RX buffer indices */
+    rx_head = 0;
+    rx_tail = 0;
+
+    /* Flush RX FIFO one last time */
+    while (UART3->LSR & 1) {
+        (void)UART3->RBR_THR_DLL;
+    }
+
+    /* Re-enable UART Interrupt */
+    NVIC_ClearPendingIRQ(UART3_IRQn);
+    NVIC_EnableIRQ(UART3_IRQn);
+    
+    return (char)cmd;
+
+exit:
+    /* Reset RX buffer indices */
+    rx_head = 0;
+    rx_tail = 0;
+
+    /* Flush RX FIFO */
+    while (UART3->LSR & 1) {
+        (void)UART3->RBR_THR_DLL;
+    }
+
+    /* Re-enable UART Interrupt */
+    NVIC_ClearPendingIRQ(UART3_IRQn);
+    NVIC_EnableIRQ(UART3_IRQn);
+    
+    return 0;
+}
+
+/* --- Command Parser --- */
+#define CMD_BUF_SIZE 64
+static char cmd_buf[CMD_BUF_SIZE];
+static int cmd_idx = 0;
+
+static void print_help(void)
+{
+    printf("\nCommands:\n");
+    printf("  help              : Show this help\n");
+    printf("  dsp start         : Release DSP reset\n");
+    printf("  dsp stop          : Hold DSP reset\n");
+    printf("  face ping         : Check DSP status\n");
+    printf("  face init <addr> <size> : Set Model (Addr, Size)\n");
+    printf("  face extract <addr>     : Extract feature from 112x112 RGB888 image at <addr>\n");
+    printf("  load              : Enter File Transfer Mode (Write to DSP SRAM0)\n");
+    printf("  status            : Show status\n");
+}
+
+static void process_command(char *cmd)
+{
+    if (strcmp(cmd, "help") == 0)
+    {
+        print_help();
+    }
+    else if (strcmp(cmd, "load") == 0)
+    {
+        char type = file_transfer_mode();
+        if (type == 'T') {
+            g_extract_type = EXTRACT_TARGET;
+            printf("Triggering DSP Extract for TARGET (0x%08X)...\n", (unsigned int)DSP_SRAM0_BASE);
+            
+            /* Ensure data is written to memory */
+            __DSB();
+            volatile uint8_t *p_check = (uint8_t*)DSP_SRAM0_BASE;
+            (void)*p_check; /* Read back to force drain */
+
+            dsp_msg_t *msg = (dsp_msg_t *)DSP_SHARED_MSG_ADDR;
+            msg->type = CMD_EXTRACT_FEATURE;
+            msg->args[0] = DSP_SRAM0_BASE;
+            mb_send_addr_wait(DSP_SHARED_MSG_ADDR);
+        } else if (type == 'C') {
+            g_extract_type = EXTRACT_COMPARE;
+            printf("Triggering DSP Extract for COMPARE (0x%08X)...\n", (unsigned int)DSP_SRAM0_BASE);
+            
+            /* Ensure data is written to memory */
+            __DSB();
+            volatile uint8_t *p_check = (uint8_t*)DSP_SRAM0_BASE;
+            (void)*p_check; /* Read back to force drain */
+
+            dsp_msg_t *msg = (dsp_msg_t *)DSP_SHARED_MSG_ADDR;
+            msg->type = CMD_EXTRACT_FEATURE;
+            msg->args[0] = DSP_SRAM0_BASE;
+            mb_send_addr_wait(DSP_SHARED_MSG_ADDR);
+        }
+    }
+    else if (strcmp(cmd, "dsp start") == 0)
+    {
+        printf("Starting DSP...\n");
+        set_dsp_warm_reset(false);
+    }
+    else if (strcmp(cmd, "dsp stop") == 0)
+    {
+        printf("Stopping DSP (Reset)...\n");
+        set_dsp_warm_reset(true);
+    }
+    else if (strcmp(cmd, "face ping") == 0)
+    {
+        printf("Sending PING...\n");
+        dsp_msg_t *msg = (dsp_msg_t *)DSP_SHARED_MSG_ADDR;
+        msg->type = CMD_PING;
+        mb_send_addr_wait(DSP_SHARED_MSG_ADDR);
+    }
+    else if (strncmp(cmd, "face init ", 10) == 0)
+    {
+        uint32_t addr, size;
+        if (sscanf(cmd + 10, "%lx %lx", (unsigned long*)&addr, (unsigned long*)&size) == 2)
+        {
+            printf("Sending CMD_SET_MODEL (Addr=0x%X, Size=0x%X)...\n", (unsigned int)addr, (unsigned int)size);
+            dsp_msg_t *msg = (dsp_msg_t *)DSP_SHARED_MSG_ADDR;
+            msg->type = CMD_SET_MODEL;
+            msg->args[0] = addr;
+            msg->args[1] = size;
+            mb_send_addr_wait(DSP_SHARED_MSG_ADDR);
+        }
+        else
+        {
+            printf("Usage: face init <hex_addr> <hex_size>\n");
+        }
+    }
+    else if (strncmp(cmd, "face extract ", 13) == 0)
+    {
+        uint32_t addr;
+        if (sscanf(cmd + 13, "%lx", (unsigned long*)&addr) == 1)
+        {
+            printf("Sending CMD_EXTRACT_FEATURE (ImageAddr=0x%X)...\n", (unsigned int)addr);
+            dsp_msg_t *msg = (dsp_msg_t *)DSP_SHARED_MSG_ADDR;
+            msg->type = CMD_EXTRACT_FEATURE;
+            msg->args[0] = addr;
+            mb_send_addr_wait(DSP_SHARED_MSG_ADDR);
+        }
+        else
+        {
+            printf("Usage: face extract <hex_addr>\n");
+        }
+    }
+    else if (strcmp(cmd, "status") == 0)
+    {
+        printf("Tick: %u ms\n", (unsigned int)millis());
+    }
+    else if (strlen(cmd) > 0)
+    {
+        printf("Unknown command: %s\n", cmd);
+    }
+}
+
+static void process_mailbox_rx(uint32_t val)
+{
+    /* The value received is an offset in DSP DTCM. Convert to M4 address. */
+    uint32_t abs_addr = DSP_DTCM_BASE + val;
+    
+    /* Data Synchronization Barrier - ensure all memory accesses complete */
+    __DSB();
+    
+    /* Invalidate data cache for the message area to ensure we read fresh data */
+    /* For Cortex-M4 without cache, this is a no-op but good practice */
+    __ISB();
+    
+    dsp_msg_t *msg = (dsp_msg_t *)abs_addr;
+    
+    /* Small delay to let DSP finish printing (if any) to avoid UART collision */
+    for(volatile int i=0; i<100000; i++);
+
+    /* Debug info */
+    // printf("[DSP] RX: Offset=0x%X, Addr=0x%X\n", (unsigned int)val, (unsigned int)abs_addr);
+
+    switch (msg->type)
+    {
+        case EVT_PONG:
+            printf("[DSP] PONG (Alive)\n");
+            break;
+        case EVT_READY:
+            printf("[DSP] READY\n");
+            break;
+        case EVT_ACK:
+            printf("[DSP] ACK\n");
+            break;
+        case EVT_NACK:
+            printf("[DSP] NACK (Error)\n");
+            break;
+        case EVT_FEATURE_READY:
+            {
+                uint32_t feature_offset = msg->args[0];
+                uint32_t feature_addr = DSP_DTCM_BASE + feature_offset;
+                printf("[DSP] FEATURE READY: Offset=0x%08X, AbsAddr=0x%08X\n", (unsigned int)feature_offset, (unsigned int)feature_addr);
+                
+                /* Ensure we read fresh data from memory, not stale cache */
+                __DSB();
+                __ISB();
+                
+                /* Print first few bytes of the feature vector (int8_t) */
+                int8_t *p_feature = (int8_t *)feature_addr;
+                
+                /* Validate feature data - check if it's all zeros (indicates DSP not ready) */
+                int zero_count = 0;
+                for(int i=0; i<128; i++) {
+                    if(p_feature[i] == 0) zero_count++;
+                }
+                
+                if(zero_count == 128) {
+                    printf("[WARN] Feature vector is all zeros! DSP may not have finished.\n");
+                    /* Try reading again after a delay */
+                    for(volatile int d=0; d<200000; d++);
+                    __DSB();
+                    __ISB();
+                }
+                
+                printf("[DSP] Feature Vector (int8): ");
+                for(int i=0; i<10; i++) {
+                    printf("%d ", p_feature[i]);
+                }
+                printf("...\n");
+
+                /* Store feature and calculate similarity */
+                if (g_extract_type == EXTRACT_TARGET) {
+                    memcpy(target_features[target_write_idx], p_feature, 128);
+                    printf("[M4] Target feature stored at slot %d.\n", target_write_idx);
+                    target_write_idx = (target_write_idx + 1) % MAX_TARGETS;
+                    if (target_count < MAX_TARGETS) target_count++;
+                    printf("[M4] Total targets: %d/%d\n", target_count, MAX_TARGETS);
+                } else if (g_extract_type == EXTRACT_COMPARE) {
+                    memcpy(compare_feature, p_feature, 128);
+                    has_compare = true;
+                    printf("[M4] Compare feature stored.\n");
+                    calculate_similarity();
+                }
+                g_extract_type = EXTRACT_NONE;
+            }
+            break;
+        default:
+            printf("[DSP] Unknown Msg Type: 0x%08X (at 0x%08X)\n", (unsigned int)msg->type, (unsigned int)val);
+            break;
+    }
+}
+
+int main(void)
+{
+    board_init();
+    printf("\r\n[S300][DSP_Debug] Booting...\r\n");
+
+    SystemCoreClockUpdate();
+    if (SysTick_Config(SystemCoreClock / 1000U) != 0U) {
+        printf("[ERR] SysTick_Config failed!\r\n");
+    }
+
+    /* Initialize PLLs */
+    rcc_init_mm_pll(8, 400, 0, 3, 2); /* 100MHz */
+    rcc_init_dsp_pll(6, 800, 0, 2, 2); /* 400MHz */
+
+    /* Initialize PSRAM */
+    printf("[S300][DSP_Debug] Init PSRAM...\r\n");
+    init_psram(4, 1);
+
+    /* Initialize Mailbox */
+    printf("[S300][DSP_Debug] Init Mailbox...\r\n");
+    init_mailbox(MAILBOX_BASE, 4, MAILBOX_IRQ_NONE);
+
+    /* Enable UART3 Interrupts */
+    set_uart_interrupt(UART_IDX3, false, true);
+    NVIC_ClearPendingIRQ(UART3_IRQn);
+    NVIC_SetPriority(UART3_IRQn, 3);
+    NVIC_EnableIRQ(UART3_IRQn);
+
+    /* Default: Reset DSP */
+    printf("[S300][DSP_Debug] Resetting DSP...\r\n");
+    set_dsp_warm_reset(true);
+
+    printf("[S300][DSP_Debug] Ready. Type 'help' for commands.\r\n");
+    printf("> ");
+    fflush(stdout);
+
+    while (1) {
+        uint8_t c;
+        if (uart_getchar_noblock((uint8_t*)&c))
+        {
+            /* Echo back */
+            write_uart(UART_IDX3, UARTTYPE_STD_SERIAL, c);
+
+            if (c == '\r' || c == '\n')
+            {
+                printf("\n");
+                cmd_buf[cmd_idx] = '\0';
+                process_command(cmd_buf);
+                cmd_idx = 0;
+                printf("> ");
+                fflush(stdout);
+            }
+            else if (c == '\b' || c == 0x7F) /* Backspace */
+            {
+                if (cmd_idx > 0)
+                {
+                    cmd_idx--;
+                    /* Handle visual backspace if needed, but simple echo is usually enough */
+                }
+            }
+            else
+            {
+                if (cmd_idx < CMD_BUF_SIZE - 1)
+                {
+                    cmd_buf[cmd_idx++] = (char)c;
+                }
+            }
+        }
+        
+        /* Poll Mailbox for incoming messages */
+        if (mailbox_sta_empty_flag_is(MAILBOX_BASE, 0) == 0)
+        {
+            uint32_t val = read_mailbox(MAILBOX_BASE);
+            process_mailbox_rx(val);
+            printf("> ");
+            fflush(stdout);
+        }
+    }
+    return 0;
+}

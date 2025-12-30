@@ -138,6 +138,8 @@ extern "C" {
 #define DSP_AXI_BUS_CFG_BASE         (0x44081000UL)
 #define DSP_NPU_BASE                 (0x44081400UL)
 #define DSP_EDAP_BASE                (0x44800000UL)
+#define DSP_DTCM_BASE                (0x44800000UL)
+#define DSP_PTCM_BASE                (0x44A00000UL)
 #define DSP_AXI_DMA_BASE             (0x44088000UL)
 #define DSP_PIM_AHB_BASE             (0x4408A000UL)
 #define DSP_PIM_BASE                 (0x60000000UL)

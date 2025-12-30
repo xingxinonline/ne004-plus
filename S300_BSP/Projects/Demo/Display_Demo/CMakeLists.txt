@@ -23,6 +23,7 @@ include_directories(
     ${ROOT}/Drivers/SoC/MAILBOX/Include
     ${ROOT}/Drivers/External/OV5640/Include
     ${ROOT}/Drivers/SoC/MM/Include
+    ${ROOT}/Drivers/SoC/PSRAM/Include
     ${ROOT}/Boards/generic_evb
     ${PROJECT_DIR}/Inc
 )
@@ -99,6 +100,7 @@ set_target_properties(${TARGET} PROPERTIES LINK_FLAGS "-T${LD_SCRIPT}")
 target_link_libraries(${TARGET}
     s300_video
     s300_mailbox
+    s300_psram
     lvgl
 )
 

@@ -15,6 +15,7 @@
 #include "rcc.h"
 #include "board.h"
 #include "video.h"
+#include "psram.h"
 /* LVGL */
 #include "lvgl.h"
 /* App orchestration */
@@ -52,6 +53,9 @@ int main(void)
 
     rcc_init_mm_pll(8, 400, 0, 3, 2); /* 100MHz */
     rcc_init_dsp_pll(8, 400, 0, 2, 1); /* 300MHz */
+
+    /* Initialize PSRAM for DSP/Display usage */
+    init_psram(4, 1);
 
     /* App init: camera/video/mailbox/ui/eyes/face_tracker */
     display_demo_app_init(millis);

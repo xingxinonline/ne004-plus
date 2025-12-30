@@ -29,10 +29,10 @@ void board_clock_init(void)
 void board_debug_uart_init(void)
 {
 #if BOARD_UART3_DEBUG_ENABLE
-    // 开启 UART3 时钟并初始化 115200 8N1
+    // 开启 UART3 时钟并初始化 921600 8N1
     set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART3, true);
     board_uart3_pins_init();
-    init_uart(UART_DEBUG_IDX, UARTTYPE_STD_SERIAL, rcc_get_clock(RCC_CLOCK_APB1), 115200);
+    init_uart(UART_DEBUG_IDX, UARTTYPE_STD_SERIAL, rcc_get_clock(RCC_CLOCK_APB1), 921600);
     // 关闭缓冲，避免半主机影响
     setvbuf(stdout, NULL, _IONBF, 0);
 #else

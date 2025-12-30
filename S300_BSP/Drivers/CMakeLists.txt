@@ -23,3 +23,14 @@ target_include_directories(s300_mailbox PUBLIC
     ${PROJECT_SOURCE_DIR}/CMSIS/Core/Include
     ${DRIVERS_ROOT}/SoC/MAILBOX/Include
 )
+
+# PSRAM driver
+add_library(s300_psram STATIC
+    ${DRIVERS_ROOT}/SoC/PSRAM/Source/psram.c
+)
+
+target_include_directories(s300_psram PUBLIC
+    ${PROJECT_SOURCE_DIR}/CMSIS/Device/PiMCHIP/S300/Include
+    ${PROJECT_SOURCE_DIR}/CMSIS/Core/Include
+    ${DRIVERS_ROOT}/SoC/PSRAM/Include
+)

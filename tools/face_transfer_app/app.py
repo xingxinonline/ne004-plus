@@ -28,10 +28,13 @@ class FaceTransferApp:
             print("Error: Could not open camera.")
             sys.exit(1)
 
-        # MediaPipe Face Detection
-        self.mp_face_detection = mp.solutions.face_detection
-        self.face_detection = self.mp_face_detection.FaceDetection(
-            model_selection=0, min_detection_confidence=0.5)
+        # MediaPipe Face Mesh (Lightweight model with 5 keypoints extraction)
+        self.mp_face_mesh = mp.solutions.face_mesh
+        self.face_mesh = self.mp_face_mesh.FaceMesh(
+            max_num_faces=5,
+            refine_landmarks=True,
+            min_detection_confidence=0.2,  # Lowered to detect faces further away
+            min_tracking_confidence=0.5)
 
         self.serial_port = None
         self.similarity_score = None  # Store similarity score
@@ -369,24 +372,43 @@ class FaceTransferApp:
             if self.transfer_lock.locked():
                 self.transfer_lock.release()
 
-    def get_aligned_face(self, frame, detection):
+    def calculate_frontal_score(self, landmarks, iw, ih):
+        kp = landmarks.landmark
+        # 468: Left Eye, 473: Right Eye, 1: Nose
+        left_eye = np.array([kp[468].x * iw, kp[468].y * ih])
+        right_eye = np.array([kp[473].x * iw, kp[473].y * ih])
+        nose = np.array([kp[1].x * iw, kp[1].y * ih])
+
+        face_width = np.linalg.norm(left_eye - right_eye)
+        if face_width == 0:
+            return 0
+
+        d_left = np.linalg.norm(left_eye - nose)
+        d_right = np.linalg.norm(right_eye - nose)
+
+        diff = abs(d_left - d_right)
+        ratio = diff / face_width
+
+        # Heuristic: 0.0 diff -> 100 score. 0.5 diff -> 0 score.
+        score = max(0, 1.0 - (ratio * 2.0))
+        return int(score * 100)
+
+    def get_aligned_face(self, frame, face_landmarks):
         ih, iw, _ = frame.shape
-        keypoints = detection.location_data.relative_keypoints
+        kp = face_landmarks.landmark
 
-        # Extract keypoints (x, y)
-        # MediaPipe: 0=Right Eye, 1=Left Eye, 2=Nose, 3=Mouth Center
+        # Extract 5 keypoints (x, y)
+        # MediaPipe Face Mesh Indices (refine_landmarks=True):
+        # Left Eye Iris: 468, Right Eye Iris: 473, Nose Tip: 1
+        # Left Mouth Corner: 61, Right Mouth Corner: 291
 
-        src_pts = []
-        # Left Eye
-        src_pts.append([keypoints[1].x * iw, keypoints[1].y * ih])
-        # Right Eye
-        src_pts.append([keypoints[0].x * iw, keypoints[0].y * ih])
-        # Nose
-        src_pts.append([keypoints[2].x * iw, keypoints[2].y * ih])
-        # Mouth Center
-        src_pts.append([keypoints[3].x * iw, keypoints[3].y * ih])
-
-        src_pts = np.array(src_pts, dtype=np.float32)
+        src_pts = np.array([
+            [kp[468].x * iw, kp[468].y * ih],  # Left Eye
+            [kp[473].x * iw, kp[473].y * ih],  # Right Eye
+            [kp[1].x * iw, kp[1].y * ih],     # Nose
+            [kp[61].x * iw, kp[61].y * ih],   # Left Mouth
+            [kp[291].x * iw, kp[291].y * ih]  # Right Mouth
+        ], dtype=np.float32)
 
         # Landmark Smoothing (Exponential Moving Average)
         # Reduces jitter when face is stationary
@@ -403,14 +425,13 @@ class FaceTransferApp:
 
         self.prev_src_pts = src_pts
 
-        # Destination points (Standard 112x112 reference with +8 shift)
-        # Note: MediaPipe Face Detection only provides Mouth Center, so we use the average of the target mouth corners.
+        # Destination points (User provided)
         dst_pts = np.array([
-            [38.2946, 51.6963],  # Left Eye (30.2946 + 8)
-            [73.5318, 51.5014],  # Right Eye (65.5318 + 8)
-            [56.0252, 71.7366],  # Nose (48.0252 + 8)
-            # Mouth Center (Average of 33.5493+8 and 62.7299+8)
-            [56.1396, 92.2848]
+            [30.2946 + 8, 51.6963],  # Left Eye
+            [65.5318 + 8, 51.5014],  # Right Eye
+            [48.0252 + 8, 71.7366],  # Nose
+            [33.5493 + 8, 92.3655],  # Left Mouth Corner
+            [62.7299 + 8, 92.2041]   # Right Mouth Corner
         ], dtype=np.float32)
 
         # Estimate affine transform
@@ -436,7 +457,7 @@ class FaceTransferApp:
 
             # Detect faces
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = self.face_detection.process(frame_rgb)
+            results = self.face_mesh.process(frame_rgb)
 
             face_img_to_send = None
             ih, iw, _ = frame.shape
@@ -444,57 +465,78 @@ class FaceTransferApp:
             # Create a copy for visualization to avoid polluting the original frame with boxes/text
             display_frame = frame.copy()
 
-            if results.detections:
-                best_detection = None
+            if results.multi_face_landmarks:
+                best_landmarks = None
                 min_dist = float('inf')
 
-                # Find best detection (closest to center)
-                for detection in results.detections:
-                    bboxC = detection.location_data.relative_bounding_box
-                    cx = (bboxC.xmin + bboxC.width / 2) * iw
-                    cy = (bboxC.ymin + bboxC.height / 2) * ih
+                # First pass: Find best face (closest to center)
+                for face_landmarks in results.multi_face_landmarks:
+                    # Calculate center from key landmarks (e.g. nose tip)
+                    nose = face_landmarks.landmark[1]
+                    cx, cy = nose.x * iw, nose.y * ih
                     dist = ((cx - iw/2)**2 + (cy - ih/2)**2)**0.5
+
                     if dist < min_dist:
                         min_dist = dist
-                        best_detection = detection
+                        best_landmarks = face_landmarks
 
-                for detection in results.detections:
-                    bboxC = detection.location_data.relative_bounding_box
-                    x, y, w_box, h_box = int(bboxC.xmin * iw), int(bboxC.ymin * ih), \
-                        int(bboxC.width * iw), int(bboxC.height * ih)
+                # Second pass: Draw all faces
+                for face_landmarks in results.multi_face_landmarks:
+                    is_best = (face_landmarks == best_landmarks)
 
-                    is_best = (detection == best_detection)
+                    # Calculate bounding box from landmarks
+                    x_min, y_min = iw, ih
+                    x_max, y_max = 0, 0
+                    for lm in face_landmarks.landmark:
+                        x, y = int(lm.x * iw), int(lm.y * ih)
+                        if x < x_min:
+                            x_min = x
+                        if x > x_max:
+                            x_max = x
+                        if y < y_min:
+                            y_min = y
+                        if y > y_max:
+                            y_max = y
+
+                    # Add some padding
+                    w_box = x_max - x_min
+                    h_box = y_max - y_min
+                    pad_x = int(w_box * 0.1)
+                    pad_y = int(h_box * 0.1)
+                    x = max(0, x_min - pad_x)
+                    y = max(0, y_min - pad_y)
+                    w_box = min(iw - x, w_box + 2 * pad_x)
+                    h_box = min(ih - y, h_box + 2 * pad_y)
+
                     color = (0, 255, 0) if is_best else (255, 0, 0)
                     thickness = 2 if is_best else 1
 
-                    # Draw bounding box on display frame
-                    cv2.rectangle(display_frame, (x, y), (x + w_box,
-                                  y + h_box), color, thickness)
+                    # Draw bounding box
+                    cv2.rectangle(display_frame, (x, y),
+                                  (x + w_box, y + h_box), color, thickness)
 
-                    # Draw detection score
-                    score = detection.score[0] if detection.score else 0
-                    score_text = f"{score:.2f}"
+                    # Calculate and draw quality score (Frontalness)
+                    quality_score = self.calculate_frontal_score(
+                        face_landmarks, iw, ih)
+                    score_text = f"Q:{quality_score}"
                     cv2.putText(display_frame, score_text, (x, y - 10),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-                    # Draw keypoints
-                    keypoints = detection.location_data.relative_keypoints
-                    for kp in keypoints:
-                        kx, ky = int(kp.x * iw), int(kp.y * ih)
+                    # Draw 5 keypoints
+                    keypoint_indices = [468, 473, 1, 61, 291]
+                    for idx in keypoint_indices:
+                        lm = face_landmarks.landmark[idx]
+                        kx, ky = int(lm.x * iw), int(lm.y * ih)
                         cv2.circle(display_frame, (kx, ky),
                                    3, (0, 255, 255), -1)
 
                     if is_best:
-                        # Use affine alignment (pass original clean frame)
+                        # Get aligned face
                         face_img_to_send = self.get_aligned_face(
-                            frame, detection)
+                            frame, face_landmarks)
 
                         # Fallback if alignment fails
                         if face_img_to_send is None:
-                            x = max(0, x)
-                            y = max(0, y)
-                            w_box = min(w_box, iw - x)
-                            h_box = min(h_box, ih - y)
                             if w_box > 0 and h_box > 0:
                                 face_crop = frame[y:y+h_box, x:x+w_box]
                                 try:
@@ -534,7 +576,7 @@ class FaceTransferApp:
                               (10 + box_w, 50 + box_h), (0, 0, 0), -1)
 
                 # Draw score text
-                color = (0, 255, 0) if self.similarity_score > 60 else (
+                color = (0, 255, 0) if self.similarity_score > 50 else (
                     0, 0, 255)
                 cv2.putText(canvas, score_text, (15, 50 + text_h1 + 5),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)

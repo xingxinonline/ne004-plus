@@ -2,6 +2,7 @@
 add_subdirectory(RBL_Minimal)
 add_subdirectory(SBL_Minimal)
 add_subdirectory(Demo/Display_Demo)
+add_subdirectory(Demo/MM_Test_Demo)
 add_subdirectory(Demo/OV5640_I2C1_Init)
 add_subdirectory(Demo/Mailbox_Test)
 add_subdirectory(Demo/UART3_Echo)

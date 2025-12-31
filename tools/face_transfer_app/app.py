@@ -10,6 +10,10 @@ import queue
 
 import re
 
+import zlib
+import os
+from datetime import datetime
+
 # Configuration
 SERIAL_PORT = 'COM7'  # Default, can be changed
 BAUD_RATE = 921600
@@ -33,6 +37,7 @@ class FaceTransferApp:
         self.similarity_score = None  # Store similarity score
         self.best_match_id = None     # Store best match target ID
         self.target_count = 0         # Number of registered targets
+        self.prev_src_pts = None      # For landmark smoothing
 
         try:
             self.serial_port = serial.Serial(
@@ -49,9 +54,16 @@ class FaceTransferApp:
         self.console_lines = []
         self.current_line = ""
         self.console_lock = threading.Lock()
+        self.buffer_lock = threading.Lock()
+
+        # Create output directory
+        self.output_dir = "saved_faces"
+        os.makedirs(self.output_dir, exist_ok=True)
 
         # Serial handling
         self.serial_queue = queue.Queue()
+        self.event_queue = queue.Queue()  # Queue for high-level events (results)
+        self.serial_buffer = ""  # Buffer for incoming serial data
         self.is_transferring = False
         self.reader_thread = threading.Thread(
             target=self.read_serial_loop, daemon=True)
@@ -72,6 +84,44 @@ class FaceTransferApp:
             if len(self.console_lines) > 100:
                 self.console_lines = self.console_lines[-100:]
 
+    def process_incoming_text(self, text):
+        print(text, end='', flush=True)
+        self.log_to_console(text)
+
+        with self.buffer_lock:
+            self.serial_buffer += text
+            while '\n' in self.serial_buffer:
+                line, self.serial_buffer = self.serial_buffer.split('\n', 1)
+                line = line.strip()
+
+                # Parse similarity score
+                match = re.search(
+                    r'\[SIM\] Best Match: ID=(\d+), Score=(\d+) \(of (\d+) targets\)', line)
+                if match:
+                    self.best_match_id = int(match.group(1))
+                    self.similarity_score = int(match.group(2))
+                    self.target_count = int(match.group(3))
+                    print(
+                        f"\n[PC] Best Match: ID={self.best_match_id}, Score={self.similarity_score}% (of {self.target_count} targets)\n")
+                    self.event_queue.put({
+                        'type': 'match',
+                        'id': self.best_match_id,
+                        'score': self.similarity_score
+                    })
+
+                # Parse target storage
+                match_target = re.search(
+                    r'\[M4\] Target feature stored at slot (\d+)', line)
+                if match_target:
+                    slot_id = int(match_target.group(1))
+                    self.event_queue.put({
+                        'type': 'target',
+                        'id': slot_id
+                    })
+
+            if len(self.serial_buffer) > 4096:
+                self.serial_buffer = self.serial_buffer[-4096:]
+
     def read_serial_loop(self):
         while self.running:
             if self.serial_port and self.serial_port.is_open:
@@ -83,20 +133,8 @@ class FaceTransferApp:
                             for b in data:
                                 self.serial_queue.put(bytes([b]))
                         else:
-                            # Print debug info directly
                             text = data.decode(errors='ignore')
-                            print(text, end='', flush=True)
-                            self.log_to_console(text)
-
-                            # Parse similarity score (new format: [SIM] Best Match: ID=X, Score=Y (of Z targets))
-                            match = re.search(
-                                r'\[SIM\] Best Match: ID=(\d+), Score=(\d+) \(of (\d+) targets\)', text)
-                            if match:
-                                self.best_match_id = int(match.group(1))
-                                self.similarity_score = int(match.group(2))
-                                self.target_count = int(match.group(3))
-                                print(
-                                    f"\n[PC] Best Match: ID={self.best_match_id}, Score={self.similarity_score}% (of {self.target_count} targets)\n")
+                            self.process_incoming_text(text)
                     else:
                         time.sleep(0.01)
                 except Exception as e:
@@ -129,14 +167,20 @@ class FaceTransferApp:
             return
 
         self.is_transferring = True
-        # Clear queue
+        # Clear queues
         while not self.serial_queue.empty():
             self.serial_queue.get()
+        while not self.event_queue.empty():
+            self.event_queue.get()
 
         try:
             # Convert to RGB
             face_rgb = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
             data = face_rgb.tobytes()
+
+            # Calculate Checksum
+            img_crc = zlib.crc32(data)
+
             size = len(data)
             chunk_size = 4096
             total_chunks = (size + chunk_size - 1) // chunk_size
@@ -148,7 +192,7 @@ class FaceTransferApp:
             print(msg, end='')
             self.log_to_console(msg)
 
-            msg = f"[PC] Face: {face_name} | Size: {size} bytes | Chunks: {total_chunks}\n"
+            msg = f"[PC] Face: {face_name} | Size: {size} bytes | CRC32: {img_crc:08X}\n"
             print(msg, end='')
             self.log_to_console(msg)
 
@@ -240,6 +284,21 @@ class FaceTransferApp:
             transfer_time = time.time() - start_transfer
             speed = size / transfer_time / 1024  # KB/s
 
+            # Transfer is done, switch back to normal reading mode immediately
+            self.is_transferring = False
+
+            # Drain any remaining data in serial_queue (e.g. result that arrived quickly)
+            remaining_bytes = b''
+            while not self.serial_queue.empty():
+                try:
+                    remaining_bytes += self.serial_queue.get_nowait()
+                except queue.Empty:
+                    break
+
+            if remaining_bytes:
+                self.process_incoming_text(
+                    remaining_bytes.decode(errors='ignore'))
+
             msg = f"[PC] ========== Transfer Complete ==========\n"
             print(msg, end='')
             self.log_to_console(msg)
@@ -254,6 +313,33 @@ class FaceTransferApp:
 
             self.status_message = f"{face_name} face saved!"
 
+            # Wait for result and save image locally
+            msg = f"[PC] Waiting for processing result to save image...\n"
+            print(msg, end='')
+            self.log_to_console(msg)
+
+            try:
+                # Wait up to 5 seconds for the result
+                result = self.event_queue.get(timeout=5)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = None
+
+                if result['type'] == 'match':
+                    filename = f"id_{result['id']}_score_{result['score']}_{timestamp}.jpg"
+                elif result['type'] == 'target':
+                    filename = f"target_id_{result['id']}_{timestamp}.jpg"
+
+                if filename:
+                    filepath = os.path.join(self.output_dir, filename)
+                    cv2.imwrite(filepath, face_img)
+                    msg = f"[PC] Saved image to {filepath}\n"
+                    print(msg, end='')
+                    self.log_to_console(msg)
+            except queue.Empty:
+                msg = f"[PC] Timeout waiting for result, image not saved locally.\n"
+                print(msg, end='')
+                self.log_to_console(msg)
+
         except Exception as e:
             msg = f"\n[PC] ========== Transfer Failed ==========\n"
             print(msg, end='')
@@ -266,6 +352,61 @@ class FaceTransferApp:
             self.status_message = f"Failed: {e}"
         finally:
             self.is_transferring = False
+
+    def get_aligned_face(self, frame, detection):
+        ih, iw, _ = frame.shape
+        keypoints = detection.location_data.relative_keypoints
+
+        # Extract keypoints (x, y)
+        # MediaPipe: 0=Right Eye, 1=Left Eye, 2=Nose, 3=Mouth Center
+
+        src_pts = []
+        # Left Eye
+        src_pts.append([keypoints[1].x * iw, keypoints[1].y * ih])
+        # Right Eye
+        src_pts.append([keypoints[0].x * iw, keypoints[0].y * ih])
+        # Nose
+        src_pts.append([keypoints[2].x * iw, keypoints[2].y * ih])
+        # Mouth Center
+        src_pts.append([keypoints[3].x * iw, keypoints[3].y * ih])
+
+        src_pts = np.array(src_pts, dtype=np.float32)
+
+        # Landmark Smoothing (Exponential Moving Average)
+        # Reduces jitter when face is stationary
+        if self.prev_src_pts is not None:
+            # Calculate average movement of landmarks
+            diff = np.linalg.norm(src_pts - self.prev_src_pts, axis=1).mean()
+            if diff < 20:  # If movement is small (likely same face/jitter)
+                # Smoothing factor (0.2 = heavy smoothing, 0.8 = responsive)
+                alpha = 0.2
+                src_pts = alpha * src_pts + (1 - alpha) * self.prev_src_pts
+            else:
+                # Large movement, treat as new position (don't smooth)
+                pass
+
+        self.prev_src_pts = src_pts
+
+        # Destination points (Standard 112x112 reference with +8 shift)
+        # Note: MediaPipe Face Detection only provides Mouth Center, so we use the average of the target mouth corners.
+        dst_pts = np.array([
+            [38.2946, 51.6963],  # Left Eye (30.2946 + 8)
+            [73.5318, 51.5014],  # Right Eye (65.5318 + 8)
+            [56.0252, 71.7366],  # Nose (48.0252 + 8)
+            # Mouth Center (Average of 33.5493+8 and 62.7299+8)
+            [56.1396, 92.2848]
+        ], dtype=np.float32)
+
+        # Estimate affine transform
+        # Use estimateAffine2D (full affine) instead of estimateAffinePartial2D (rigid)
+        # This allows for reflection/shear, which might be needed if mapping mirrored face to standard face
+        tform, _ = cv2.estimateAffine2D(src_pts, dst_pts)
+
+        if tform is None:
+            return None
+
+        aligned_face = cv2.warpAffine(frame, tform, (112, 112))
+        return aligned_face
 
     def run(self):
         while self.running:
@@ -282,35 +423,75 @@ class FaceTransferApp:
             results = self.face_detection.process(frame_rgb)
 
             face_img_to_send = None
+            ih, iw, _ = frame.shape
+
+            # Create a copy for visualization to avoid polluting the original frame with boxes/text
+            display_frame = frame.copy()
 
             if results.detections:
+                best_detection = None
+                min_dist = float('inf')
+
+                # Find best detection (closest to center)
                 for detection in results.detections:
                     bboxC = detection.location_data.relative_bounding_box
-                    ih, iw, _ = frame.shape
+                    cx = (bboxC.xmin + bboxC.width / 2) * iw
+                    cy = (bboxC.ymin + bboxC.height / 2) * ih
+                    dist = ((cx - iw/2)**2 + (cy - ih/2)**2)**0.5
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_detection = detection
+
+                for detection in results.detections:
+                    bboxC = detection.location_data.relative_bounding_box
                     x, y, w_box, h_box = int(bboxC.xmin * iw), int(bboxC.ymin * ih), \
                         int(bboxC.width * iw), int(bboxC.height * ih)
 
-                    # Draw bounding box
-                    cv2.rectangle(frame, (x, y), (x + w_box,
-                                  y + h_box), (0, 255, 0), 2)
+                    is_best = (detection == best_detection)
+                    color = (0, 255, 0) if is_best else (255, 0, 0)
+                    thickness = 2 if is_best else 1
 
-                    # Prepare crop if needed
-                    # Ensure coordinates are within bounds
-                    x = max(0, x)
-                    y = max(0, y)
-                    w_box = min(w_box, iw - x)
-                    h_box = min(h_box, ih - y)
+                    # Draw bounding box on display frame
+                    cv2.rectangle(display_frame, (x, y), (x + w_box,
+                                  y + h_box), color, thickness)
 
-                    if w_box > 0 and h_box > 0:
-                        face_crop = frame[y:y+h_box, x:x+w_box]
-                        try:
-                            face_img_to_send = cv2.resize(face_crop, FACE_SIZE)
-                        except:
-                            pass
+                    # Draw detection score
+                    score = detection.score[0] if detection.score else 0
+                    score_text = f"{score:.2f}"
+                    cv2.putText(display_frame, score_text, (x, y - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+                    # Draw keypoints
+                    keypoints = detection.location_data.relative_keypoints
+                    for kp in keypoints:
+                        kx, ky = int(kp.x * iw), int(kp.y * ih)
+                        cv2.circle(display_frame, (kx, ky),
+                                   3, (0, 255, 255), -1)
+
+                    if is_best:
+                        # Use affine alignment (pass original clean frame)
+                        face_img_to_send = self.get_aligned_face(
+                            frame, detection)
+
+                        # Fallback if alignment fails
+                        if face_img_to_send is None:
+                            x = max(0, x)
+                            y = max(0, y)
+                            w_box = min(w_box, iw - x)
+                            h_box = min(h_box, ih - y)
+                            if w_box > 0 and h_box > 0:
+                                face_crop = frame[y:y+h_box, x:x+w_box]
+                                try:
+                                    face_img_to_send = cv2.resize(
+                                        face_crop, FACE_SIZE)
+                                except:
+                                    pass
+            else:
+                self.prev_src_pts = None
 
             # Create combined canvas
             canvas = np.zeros((h, w + CONSOLE_WIDTH, 3), dtype=np.uint8)
-            canvas[:h, :w, :] = frame
+            canvas[:h, :w, :] = display_frame
 
             # Draw status on video
             cv2.putText(canvas, self.status_message, (10, 30),
@@ -337,7 +518,7 @@ class FaceTransferApp:
                               (10 + box_w, 50 + box_h), (0, 0, 0), -1)
 
                 # Draw score text
-                color = (0, 255, 0) if self.similarity_score > 70 else (
+                color = (0, 255, 0) if self.similarity_score > 60 else (
                     0, 0, 255)
                 cv2.putText(canvas, score_text, (15, 50 + text_h1 + 5),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)

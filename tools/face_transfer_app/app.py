@@ -48,12 +48,13 @@ class FaceTransferApp:
             print("Running in offline mode (no transfer).")
 
         self.running = True
-        self.status_message = "Press 't' to save Target, 'c' to save Compare, 'q' to quit."
+        self.auto_mode = False
+        self.status_message = "Press 't' to save Target, 'c' to save Compare, 's' for Auto, 'q' to quit."
 
         # Console buffer
         self.console_lines = []
         self.current_line = ""
-        self.console_lock = threading.Lock()
+        self.console_queue = queue.Queue()  # Use queue for thread safety without locks
         self.buffer_lock = threading.Lock()
 
         # Create output directory
@@ -65,24 +66,13 @@ class FaceTransferApp:
         self.event_queue = queue.Queue()  # Queue for high-level events (results)
         self.serial_buffer = ""  # Buffer for incoming serial data
         self.is_transferring = False
+        self.transfer_lock = threading.Lock()  # Prevent concurrent transfers
         self.reader_thread = threading.Thread(
             target=self.read_serial_loop, daemon=True)
         self.reader_thread.start()
 
     def log_to_console(self, text):
-        with self.console_lock:
-            for char in text:
-                if char == '\n':
-                    self.console_lines.append(self.current_line)
-                    self.current_line = ""
-                elif char == '\r':
-                    pass
-                else:
-                    self.current_line += char
-
-            # Keep buffer size reasonable
-            if len(self.console_lines) > 100:
-                self.console_lines = self.console_lines[-100:]
+        self.console_queue.put(text)
 
     def process_incoming_text(self, text):
         print(text, end='', flush=True)
@@ -161,19 +151,21 @@ class FaceTransferApp:
                 continue
         return False
 
-    def send_face_data(self, face_img, command):
-        if not self.serial_port or not self.serial_port.is_open:
-            self.status_message = "Serial port not open!"
-            return
-
+    def send_face_data(self, face_img, command, save_image=True):
+        # Ensure is_transferring is True (should be set by caller, but for safety)
         self.is_transferring = True
-        # Clear queues
-        while not self.serial_queue.empty():
-            self.serial_queue.get()
-        while not self.event_queue.empty():
-            self.event_queue.get()
 
         try:
+            if not self.serial_port or not self.serial_port.is_open:
+                self.status_message = "Serial port not open!"
+                return
+
+            # Clear queues
+            while not self.serial_queue.empty():
+                self.serial_queue.get()
+            while not self.event_queue.empty():
+                self.event_queue.get()
+
             # Convert to RGB
             face_rgb = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
             data = face_rgb.tobytes()
@@ -284,9 +276,6 @@ class FaceTransferApp:
             transfer_time = time.time() - start_transfer
             speed = size / transfer_time / 1024  # KB/s
 
-            # Transfer is done, switch back to normal reading mode immediately
-            self.is_transferring = False
-
             # Drain any remaining data in serial_queue (e.g. result that arrived quickly)
             remaining_bytes = b''
             while not self.serial_queue.empty():
@@ -298,7 +287,8 @@ class FaceTransferApp:
             if remaining_bytes:
                 self.process_incoming_text(
                     remaining_bytes.decode(errors='ignore'))
-
+            # Switch back to text mode so serial reader can parse result messages
+            self.is_transferring = False
             msg = f"[PC] ========== Transfer Complete ==========\n"
             print(msg, end='')
             self.log_to_console(msg)
@@ -314,44 +304,70 @@ class FaceTransferApp:
             self.status_message = f"{face_name} face saved!"
 
             # Wait for result and save image locally
-            msg = f"[PC] Waiting for processing result to save image...\n"
+            if save_image:
+                msg = f"[PC] Waiting for processing result to save image...\n"
+            else:
+                msg = f"[PC] Waiting for processing result...\n"
+
             print(msg, end='')
             self.log_to_console(msg)
 
             try:
                 # Wait up to 5 seconds for the result
                 result = self.event_queue.get(timeout=5)
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = None
 
-                if result['type'] == 'match':
-                    filename = f"id_{result['id']}_score_{result['score']}_{timestamp}.jpg"
-                elif result['type'] == 'target':
-                    filename = f"target_id_{result['id']}_{timestamp}.jpg"
+                if save_image:
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = None
 
-                if filename:
-                    filepath = os.path.join(self.output_dir, filename)
-                    cv2.imwrite(filepath, face_img)
-                    msg = f"[PC] Saved image to {filepath}\n"
-                    print(msg, end='')
-                    self.log_to_console(msg)
+                    if result['type'] == 'match':
+                        filename = f"id_{result['id']}_score_{result['score']}_{timestamp}.jpg"
+                    elif result['type'] == 'target':
+                        filename = f"target_id_{result['id']}_{timestamp}.jpg"
+
+                    if filename:
+                        filepath = os.path.join(self.output_dir, filename)
+                        try:
+                            # Use imencode + write to avoid potential cv2.imwrite locking issues
+                            success, encoded_img = cv2.imencode(
+                                '.jpg', face_img)
+                            if success:
+                                with open(filepath, "wb") as f:
+                                    f.write(encoded_img.tobytes())
+                                msg = f"[PC] Saved image to {filepath}\n"
+                            else:
+                                msg = f"[PC] Error encoding image\n"
+                        except Exception as e:
+                            msg = f"[PC] Error saving image: {e}\n"
+
+                        print(msg, end='')
+                        self.log_to_console(msg)
             except queue.Empty:
-                msg = f"[PC] Timeout waiting for result, image not saved locally.\n"
+                msg = f"[PC] Timeout waiting for result.\n"
                 print(msg, end='')
+                self.log_to_console(msg)
+            except Exception as e:
+                msg = f"[PC] Error in result processing: {e}\n"
+                print(msg, end='')
+                sys.stdout.flush()
                 self.log_to_console(msg)
 
         except Exception as e:
             msg = f"\n[PC] ========== Transfer Failed ==========\n"
             print(msg, end='')
+            sys.stdout.flush()
             self.log_to_console(msg)
 
             msg = f"[PC] Error: {e}\n\n"
             print(msg, end='')
+            sys.stdout.flush()
             self.log_to_console(msg)
 
             self.status_message = f"Failed: {e}"
         finally:
             self.is_transferring = False
+            if self.transfer_lock.locked():
+                self.transfer_lock.release()
 
     def get_aligned_face(self, frame, detection):
         ih, iw, _ = frame.shape
@@ -530,9 +546,27 @@ class FaceTransferApp:
             # Draw separator line
             cv2.line(canvas, (w, 0), (w, h), (100, 100, 100), 1)
 
+            # Process console queue
+            try:
+                while True:
+                    text = self.console_queue.get_nowait()
+                    for char in text:
+                        if char == '\n':
+                            self.console_lines.append(self.current_line)
+                            self.current_line = ""
+                        elif char == '\r':
+                            pass
+                        else:
+                            self.current_line += char
+            except queue.Empty:
+                pass
+
+            # Keep buffer size reasonable
+            if len(self.console_lines) > 100:
+                self.console_lines = self.console_lines[-100:]
+
             # Draw console text
-            with self.console_lock:
-                lines_to_draw = self.console_lines + [self.current_line]
+            lines_to_draw = self.console_lines + [self.current_line]
 
             font_scale = 0.4
             font_thickness = 1
@@ -551,25 +585,50 @@ class FaceTransferApp:
                             cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 0), font_thickness)
                 y_pos += line_height
 
+            # Auto Mode Logic
+            if self.auto_mode and face_img_to_send is not None:
+                if self.transfer_lock.acquire(blocking=False):
+                    self.is_transferring = True
+                    threading.Thread(target=self.send_face_data, args=(
+                        face_img_to_send, 'compare', False)).start()
+
             cv2.imshow('Face Transfer App', canvas)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 self.running = False
+            elif key == ord('s'):
+                self.auto_mode = not self.auto_mode
+                if self.auto_mode:
+                    self.status_message = "Auto Mode: ON. Press 's' to stop."
+                else:
+                    self.status_message = "Auto Mode: OFF. Press 't'/'c'/'s'."
             elif key == ord('t'):
-                if face_img_to_send is not None:
-                    if not self.is_transferring:
-                        threading.Thread(target=self.send_face_data, args=(
-                            face_img_to_send, 'target')).start()
+                if not self.auto_mode:
+                    if face_img_to_send is not None:
+                        if self.transfer_lock.acquire(blocking=False):
+                            self.is_transferring = True
+                            threading.Thread(target=self.send_face_data, args=(
+                                face_img_to_send, 'target', True)).start()
+                        else:
+                            self.status_message = "Transfer in progress..."
                     else:
-                        self.status_message = "Transfer in progress..."
+                        self.status_message = "No face detected!"
+                else:
+                    self.status_message = "Stop Auto Mode (s) to use 't'."
             elif key == ord('c'):
-                if face_img_to_send is not None:
-                    if not self.is_transferring:
-                        threading.Thread(target=self.send_face_data, args=(
-                            face_img_to_send, 'compare')).start()
+                if not self.auto_mode:
+                    if face_img_to_send is not None:
+                        if self.transfer_lock.acquire(blocking=False):
+                            self.is_transferring = True
+                            threading.Thread(target=self.send_face_data, args=(
+                                face_img_to_send, 'compare', True)).start()
+                        else:
+                            self.status_message = "Transfer in progress..."
                     else:
-                        self.status_message = "Transfer in progress..."
+                        self.status_message = "No face detected!"
+                else:
+                    self.status_message = "Stop Auto Mode (s) to use 'c'."
 
         self.cap.release()
         if self.serial_port:

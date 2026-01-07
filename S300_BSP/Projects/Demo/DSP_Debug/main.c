@@ -8,6 +8,7 @@
 #include "mailbox.h"
 #include "psram.h"
 #include "uart.h"
+#include "video.h"
 #include "dsp_protocol.h"
 
 /* --- UART Ring Buffer --- */
@@ -17,8 +18,8 @@ static volatile uint32_t rx_head = 0;
 static volatile uint32_t rx_tail = 0;
 
 /* --- Shared Message Buffer --- */
-/* Allocated in PSRAM (0x80400000) to ensure DSP access */
-#define DSP_SHARED_MSG_ADDR 0x80400000
+/* Allocated in PSRAM (Moved to 0x80500000 to avoid Display Buffers at 0x8040xxxx) */
+#define DSP_SHARED_MSG_ADDR 0x80500000
 
 void UART3_IRQHandler(void)
 {
@@ -124,6 +125,68 @@ static void calculate_similarity(void) {
     }
     
     printf("[SIM] Best Match: ID=%d, Score=%d (of %d targets)\n", best_id, best_score, target_count);
+}
+
+static void set_alpha_buffer(uint8_t alpha) {
+    /* PSRAM supports 16-bit aligned access. Write 2 pixels at a time. */
+    volatile uint16_t *a0 = (volatile uint16_t *)DISP_RALPHA0_ADDR;
+    volatile uint16_t *a1 = (volatile uint16_t *)DISP_RALPHA1_ADDR;
+    uint16_t val = (uint16_t)alpha | ((uint16_t)alpha << 8);
+    uint32_t n_words = (DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT) / 2;
+    
+    for (uint32_t i = 0; i < n_words; i++) {
+        a0[i] = val;
+        a1[i] = val;
+    }
+}
+
+static uint16_t rgb888_to_rgb565(uint8_t r, uint8_t g, uint8_t b) {
+    return ((uint16_t)(r & 0xF8) << 8) | ((uint16_t)(g & 0xFC) << 3) | ((uint16_t)b >> 3);
+}
+
+static void update_display(uint32_t img_addr, bool is_target) {
+    uint8_t *src = (uint8_t *)img_addr;
+    /* We always write to the same buffer for simplicity in this debug tool */
+    uint16_t *dst = (uint16_t *)DISP_RFRAME0_ADDR;
+    
+    /* 
+     * Landscape orientation (160x128). 
+     * Physical screen is 128x160 portrait, rotated 90 degrees CCW.
+     * Mapping: Visual (vx, vy) -> Buffer (x, y)
+     * vx = y
+     * vy = 127 - x  =>  x = 127 - vy
+     */
+    int start_vx = is_target ? 12 : 92;         /* Left side vs Right side */
+    int start_vy = (128 - 56) / 2;               /* Centered vertically */
+    
+    printf("[M4] Updating Display (Landscape): %s at visual (%d, %d)\n", 
+           is_target ? "Target" : "Compare", start_vx, start_vy);
+
+    for (int iy = 0; iy < 56; iy++) {
+        for (int ix = 0; ix < 56; ix++) {
+            // Source image is 112x112 RGB888, scale 1/2 to 56x56
+            int sy = iy * 2;
+            int sx = ix * 2;
+            int src_idx = (sy * 112 + sx) * 3;
+            uint8_t r = src[src_idx];
+            uint8_t g = src[src_idx + 1];
+            uint8_t b = src[src_idx + 2];
+            
+            uint16_t rgb565 = rgb888_to_rgb565(r, g, b);
+            
+            int vx = start_vx + ix;
+            int vy = start_vy + iy;
+            
+            int buffer_x = 127 - vy;
+            int buffer_y = vx;
+            
+            dst[buffer_y * DISP_IMAGE_WIDTH + buffer_x] = rgb565;
+        }
+    }
+    
+    /* Trigger display update (Register F0) */
+    REG32(DSP_VIDEO_SS_BASE + 0x50) = 1u;
+    while ((REG32(DSP_VIDEO_SS_BASE + 0x50) & 0x1u) != 0u);
 }
 
 static char file_transfer_mode(void)
@@ -265,6 +328,9 @@ static void process_command(char *cmd)
             g_extract_type = EXTRACT_TARGET;
             printf("Triggering DSP Extract for TARGET (0x%08X)...\n", (unsigned int)DSP_SRAM0_BASE);
             
+            /* Update Display */
+            update_display(DSP_SRAM0_BASE, true);
+
             /* Ensure data is written to memory */
             __DSB();
             volatile uint8_t *p_check = (uint8_t*)DSP_SRAM0_BASE;
@@ -278,6 +344,9 @@ static void process_command(char *cmd)
             g_extract_type = EXTRACT_COMPARE;
             printf("Triggering DSP Extract for COMPARE (0x%08X)...\n", (unsigned int)DSP_SRAM0_BASE);
             
+            /* Update Display */
+            update_display(DSP_SRAM0_BASE, false);
+
             /* Ensure data is written to memory */
             __DSB();
             volatile uint8_t *p_check = (uint8_t*)DSP_SRAM0_BASE;
@@ -459,6 +528,26 @@ int main(void)
     /* Initialize Mailbox */
     printf("[S300][DSP_Debug] Init Mailbox...\r\n");
     init_mailbox(MAILBOX_BASE, 4, MAILBOX_IRQ_NONE);
+
+    /* Initialize Display */
+    printf("[S300][DSP_Debug] Init Display...\r\n");
+    init_video(EM_DVP, CAMREA_RGB565, C1080X720P);
+    
+    /* Set Alpha to 0xFF (Opaque) - PSRAM safe */
+    set_alpha_buffer(0xFF);
+    
+    /* Clear screen to black - PSRAM safe (32-bit writes) */
+    volatile uint32_t *f0 = (volatile uint32_t *)DISP_RFRAME0_ADDR;
+    volatile uint32_t *f1 = (volatile uint32_t *)DISP_RFRAME1_ADDR;
+    uint32_t f_words = (DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT * 2) / 4;
+    for (uint32_t i = 0; i < f_words; i++) {
+        f0[i] = 0;
+        f1[i] = 0;
+    }
+    
+    /* Trigger initial update */
+    REG32(DSP_VIDEO_SS_BASE + 0x50) = 1u;
+    while ((REG32(DSP_VIDEO_SS_BASE + 0x50) & 0x1u) != 0u);
 
     /* Enable UART3 Interrupts */
     set_uart_interrupt(UART_IDX3, false, true);

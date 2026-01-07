@@ -20,6 +20,7 @@ include_directories(
     ${ROOT}/Drivers/SoC/UART/Include
     ${ROOT}/Drivers/SoC/MAILBOX/Include
     ${ROOT}/Drivers/SoC/PSRAM/Include
+    ${ROOT}/Drivers/SoC/MM/Include
     ${ROOT}/Boards/generic_evb
 )
 
@@ -33,6 +34,7 @@ set(SRCS
     ${ROOT}/Drivers/SoC/RCC/Source/rcc.c
     ${ROOT}/Drivers/SoC/GPIO/Source/gpio.c
     ${ROOT}/Drivers/SoC/UART/Source/uart.c
+    ${ROOT}/Drivers/SoC/MM/Source/video.c
     ${PROJECT_DIR}/main.c
 )
 

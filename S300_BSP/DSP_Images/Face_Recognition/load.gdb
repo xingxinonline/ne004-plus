@@ -1,0 +1,7 @@
+# DSP Boot Images Loader - Face Recognition
+# Paths are relative to CWD when launching GDB (which is build dir)
+
+echo \n>>> Loading Face Recognition DSP Images...\n
+restore dsp_dtcm_boot.bin binary 0x44800000
+restore dsp_ptcm_boot.bin binary 0x44A00000
+restore dsp_sram0_boot.bin binary 0x44000000

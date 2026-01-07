@@ -24,12 +24,12 @@
 
 /* Enable object transform (rotation/scale) for overlay vertical text, etc. */
 #ifndef LV_USE_TRANSFORM
-    #define LV_USE_TRANSFORM      1
+#define LV_USE_TRANSFORM      1
 #endif
 
 /* Enable GIF decoder and widget */
 #ifndef LV_USE_GIF
-    #define LV_USE_GIF            1
+#define LV_USE_GIF            1
 #endif
 
 /* Default display resolution (can be overridden at runtime) */
@@ -38,7 +38,6 @@
 
 /* Fonts: minimize text footprint. Keep only very small UNSCII 8 as default. */
 #define LV_FONT_MONTSERRAT_12 0
-#define LV_FONT_MONTSERRAT_28 1
 #define LV_FONT_UNSCII_8      1
 #define LV_FONT_DEFAULT       &lv_font_unscii_8
 

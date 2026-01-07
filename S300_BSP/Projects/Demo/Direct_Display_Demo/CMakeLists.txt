@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(Simple_Display_Demo)
+project(Direct_Display_Demo)
 
 # Target
 set(TARGET s300_direct_display_demo)

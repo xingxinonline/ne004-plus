@@ -10,6 +10,17 @@
 #include "uart.h"
 #include "video.h"
 #include "dsp_protocol.h"
+#include "gpio.h"
+#include "i2c_soft.h"
+#include "ov5640.h"
+
+#ifndef CAM_RST_PIN
+#define CAM_RST_PIN  15u  /* GPIOA15 */
+#endif
+#ifndef CAM_PWDN_PIN
+#define CAM_PWDN_PIN 6u   /* GPIOA6  */
+#endif
+
 
 /* --- UART Ring Buffer --- */
 #define RX_BUFFER_SIZE 256
@@ -96,6 +107,144 @@ static bool has_compare = false;
 typedef enum { EXTRACT_NONE, EXTRACT_TARGET, EXTRACT_COMPARE } extract_type_t;
 static volatile extract_type_t g_extract_type = EXTRACT_NONE;
 
+/* --- Font 5x7 --- */
+static const uint8_t font5x7[96][5] = {
+    {0x00, 0x00, 0x00, 0x00, 0x00}, // space
+    {0x00, 0x00, 0x5F, 0x00, 0x00}, // !
+    {0x00, 0x07, 0x00, 0x07, 0x00}, // "
+    {0x14, 0x7F, 0x14, 0x7F, 0x14}, // #
+    {0x24, 0x2A, 0x7F, 0x2A, 0x12}, // $
+    {0x23, 0x13, 0x08, 0x64, 0x62}, // %
+    {0x36, 0x49, 0x55, 0x22, 0x50}, // &
+    {0x00, 0x05, 0x03, 0x00, 0x00}, // '
+    {0x00, 0x1C, 0x22, 0x41, 0x00}, // (
+    {0x00, 0x41, 0x22, 0x1C, 0x00}, // )
+    {0x14, 0x08, 0x3E, 0x08, 0x14}, // *
+    {0x08, 0x08, 0x3E, 0x08, 0x08}, // +
+    {0x00, 0x50, 0x30, 0x00, 0x00}, // ,
+    {0x08, 0x08, 0x08, 0x08, 0x08}, // -
+    {0x00, 0x60, 0x60, 0x00, 0x00}, // .
+    {0x20, 0x10, 0x08, 0x04, 0x02}, // /
+    {0x3E, 0x51, 0x49, 0x45, 0x3E}, // 0
+    {0x00, 0x42, 0x7F, 0x40, 0x00}, // 1
+    {0x42, 0x61, 0x51, 0x49, 0x46}, // 2
+    {0x21, 0x41, 0x45, 0x4B, 0x31}, // 3
+    {0x18, 0x14, 0x12, 0x7F, 0x10}, // 4
+    {0x27, 0x45, 0x45, 0x45, 0x39}, // 5
+    {0x3C, 0x4A, 0x49, 0x49, 0x30}, // 6
+    {0x01, 0x71, 0x09, 0x05, 0x03}, // 7
+    {0x36, 0x49, 0x49, 0x49, 0x36}, // 8
+    {0x06, 0x49, 0x49, 0x29, 0x1E}, // 9
+    {0x00, 0x36, 0x36, 0x00, 0x00}, // :
+    {0x00, 0x56, 0x36, 0x00, 0x00}, // ;
+    {0x08, 0x14, 0x22, 0x41, 0x00}, // <
+    {0x14, 0x14, 0x14, 0x14, 0x14}, // =
+    {0x00, 0x41, 0x22, 0x14, 0x08}, // >
+    {0x02, 0x01, 0x51, 0x09, 0x06}, // ?
+    {0x32, 0x49, 0x79, 0x41, 0x3E}, // @
+    {0x7E, 0x11, 0x11, 0x11, 0x7E}, // A
+    {0x7F, 0x49, 0x49, 0x49, 0x36}, // B
+    {0x3E, 0x41, 0x41, 0x41, 0x22}, // C
+    {0x7F, 0x41, 0x41, 0x22, 0x1C}, // D
+    {0x7F, 0x49, 0x49, 0x49, 0x41}, // E
+    {0x7F, 0x09, 0x09, 0x09, 0x01}, // F
+    {0x3E, 0x41, 0x49, 0x49, 0x7A}, // G
+    {0x7F, 0x08, 0x08, 0x08, 0x7F}, // H
+    {0x00, 0x41, 0x7F, 0x41, 0x00}, // I
+    {0x20, 0x40, 0x41, 0x3F, 0x01}, // J
+    {0x7F, 0x08, 0x14, 0x22, 0x41}, // K
+    {0x7F, 0x40, 0x40, 0x40, 0x40}, // L
+    {0x7F, 0x02, 0x0C, 0x02, 0x7F}, // M
+    {0x7F, 0x04, 0x08, 0x10, 0x7F}, // N
+    {0x3E, 0x41, 0x41, 0x41, 0x3E}, // O
+    {0x7F, 0x09, 0x09, 0x09, 0x06}, // P
+    {0x3E, 0x41, 0x51, 0x21, 0x5E}, // Q
+    {0x7F, 0x09, 0x19, 0x29, 0x46}, // R
+    {0x46, 0x49, 0x49, 0x49, 0x31}, // S
+    {0x01, 0x01, 0x7F, 0x01, 0x01}, // T
+    {0x3F, 0x40, 0x40, 0x40, 0x3F}, // U
+    {0x1F, 0x20, 0x40, 0x20, 0x1F}, // V
+    {0x3F, 0x40, 0x38, 0x40, 0x3F}, // W
+    {0x63, 0x14, 0x08, 0x14, 0x63}, // X
+    {0x07, 0x08, 0x70, 0x08, 0x07}, // Y
+    {0x61, 0x51, 0x49, 0x45, 0x43}, // Z
+    {0x00, 0x7F, 0x41, 0x41, 0x00}, // [
+    {0x02, 0x04, 0x08, 0x10, 0x20}, // backslash
+    {0x00, 0x41, 0x41, 0x7F, 0x00}, // ]
+    {0x04, 0x02, 0x01, 0x02, 0x04}, // ^
+    {0x40, 0x40, 0x40, 0x40, 0x40}, // _
+    {0x00, 0x01, 0x02, 0x04, 0x00}, // `
+    {0x20, 0x54, 0x54, 0x54, 0x78}, // a
+    {0x7F, 0x48, 0x44, 0x44, 0x38}, // b
+    {0x38, 0x44, 0x44, 0x44, 0x20}, // c
+    {0x38, 0x44, 0x44, 0x48, 0x7F}, // d
+    {0x38, 0x54, 0x54, 0x54, 0x18}, // e
+    {0x08, 0x7E, 0x09, 0x01, 0x02}, // f
+    {0x0C, 0x52, 0x52, 0x52, 0x3E}, // g
+    {0x7F, 0x08, 0x04, 0x04, 0x78}, // h
+    {0x00, 0x44, 0x7D, 0x40, 0x00}, // i
+    {0x20, 0x40, 0x44, 0x3D, 0x00}, // j
+    {0x7F, 0x10, 0x28, 0x44, 0x00}, // k
+    {0x00, 0x41, 0x7F, 0x40, 0x00}, // l
+    {0x7C, 0x04, 0x18, 0x04, 0x78}, // m
+    {0x7C, 0x08, 0x04, 0x04, 0x78}, // n
+    {0x38, 0x44, 0x44, 0x44, 0x38}, // o
+    {0x7C, 0x14, 0x14, 0x14, 0x08}, // p
+    {0x08, 0x14, 0x14, 0x18, 0x7C}, // q
+    {0x7C, 0x08, 0x04, 0x04, 0x08}, // r
+    {0x48, 0x54, 0x54, 0x54, 0x20}, // s
+    {0x04, 0x3F, 0x44, 0x40, 0x20}, // t
+    {0x3C, 0x40, 0x40, 0x20, 0x7C}, // u
+    {0x1C, 0x20, 0x40, 0x20, 0x1C}, // v
+    {0x3C, 0x40, 0x30, 0x40, 0x3C}, // w
+    {0x44, 0x28, 0x10, 0x28, 0x44}, // x
+    {0x0C, 0x50, 0x50, 0x50, 0x3C}, // y
+    {0x44, 0x64, 0x54, 0x4C, 0x44}, // z
+    {0x00, 0x08, 0x36, 0x41, 0x00}, // {
+    {0x00, 0x00, 0x7F, 0x00, 0x00}, // |
+    {0x00, 0x41, 0x36, 0x08, 0x00}, // }
+    {0x10, 0x08, 0x08, 0x10, 0x08}  // ~
+};
+
+static void draw_pixel_rotated(int vx, int vy, uint16_t color) {
+    if (vx < 0 || vx >= 160 || vy < 0 || vy >= 128) return;
+    
+    int buffer_x = 127 - vy;
+    int buffer_y = vx;
+    
+    volatile uint16_t *dst = (volatile uint16_t *)DISP_RFRAME0_ADDR;
+    dst[buffer_y * DISP_IMAGE_WIDTH + buffer_x] = color;
+}
+
+static void draw_char(int vx, int vy, char c, uint16_t color) {
+    if (c < 32 || c > 126) return;
+    const uint8_t *glyph = font5x7[c - 32];
+    for (int col = 0; col < 5; col++) {
+        uint8_t line = glyph[col];
+        for (int row = 0; row < 7; row++) {
+            if (line & (1 << row)) {
+                draw_pixel_rotated(vx + col, vy + row, color);
+            }
+        }
+    }
+}
+
+static void draw_string(int vx, int vy, const char *str, uint16_t color) {
+    while (*str) {
+        draw_char(vx, vy, *str, color);
+        vx += 6; // 5 + 1 spacing
+        str++;
+    }
+}
+
+static void draw_rect_fill(int vx, int vy, int w, int h, uint16_t color) {
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            draw_pixel_rotated(vx + x, vy + y, color);
+        }
+    }
+}
+
 static int calculate_single_similarity(int8_t *feat1, int8_t *feat2) {
     int32_t dot = 0;
     for(int i=0; i<128; i++) {
@@ -125,6 +274,20 @@ static void calculate_similarity(void) {
     }
     
     printf("[SIM] Best Match: ID=%d, Score=%d (of %d targets)\n", best_id, best_score, target_count);
+
+    /* Draw Score */
+    char score_buf[16];
+    sprintf(score_buf, "Score: %d  ", best_score); // Trailing spaces to clear previous
+    
+    /* Clear and draw score above compare image */
+    /* Area above Compare: X=92, Y=36. Text at Y=26 */
+    /* Clear rect: X=92, Y=26, W=60, H=8 */
+    draw_rect_fill(92, 26, 68, 8, 0x0000); // Black
+    draw_string(92, 26, score_buf, 0xFFFF); // White
+    
+    /* Trigger display update */
+    REG32(DSP_VIDEO_SS_BASE + 0x50) = 1u;
+    while ((REG32(DSP_VIDEO_SS_BASE + 0x50) & 0x1u) != 0u);
 }
 
 static void set_alpha_buffer(uint8_t alpha) {
@@ -161,6 +324,17 @@ static void update_display(uint32_t img_addr, bool is_target) {
     
     printf("[M4] Updating Display (Landscape): %s at visual (%d, %d)\n", 
            is_target ? "Target" : "Compare", start_vx, start_vy);
+
+    /* Draw Target/Compare Label */
+    if (is_target) {
+        draw_rect_fill(start_vx, start_vy - 10, 40, 8, 0x0000);
+        draw_string(start_vx, start_vy - 10, "Target", 0xFFFF);
+    } else {
+        /* For Compare, we draw "Score: --" initially */
+        draw_rect_fill(start_vx, start_vy - 10, 60, 8, 0x0000);
+        // draw_string(start_vx, start_vy - 10, "Score: --", 0xFFFF);
+        /* Actually user wants "Score" above compare image. Wait for calc to show score. */
+    }
 
     for (int iy = 0; iy < 56; iy++) {
         for (int ix = 0; ix < 56; ix++) {
@@ -507,6 +681,76 @@ static void process_mailbox_rx(uint32_t val)
     }
 }
 
+static void cam_gpio_init(void)
+{
+    set_cortex_m4_apb1_clock(RCC_CM4_APB1_GPIO, true);
+    gpio_set_function(GPIOA, CAM_RST_PIN, FUNCTION_2);
+    gpio_set_mode(GPIOA, CAM_RST_PIN, GPIO_UP);
+    gpio_set_direction(GPIOA, CAM_RST_PIN, 1);
+    gpio_set_function(GPIOA, CAM_PWDN_PIN, FUNCTION_2);
+    gpio_set_mode(GPIOA, CAM_PWDN_PIN, GPIO_UP);
+    gpio_set_direction(GPIOA, CAM_PWDN_PIN, 1);
+}
+
+static void cam_power_on_sequence(void)
+{
+    gpio_set_data(GPIOA, CAM_RST_PIN, 0);
+    gpio_set_data(GPIOA, CAM_PWDN_PIN, 1);
+    for (volatile uint32_t i = 0; i < 800000u; i++) __asm volatile("nop");
+    gpio_set_data(GPIOA, CAM_PWDN_PIN, 0);
+    for (volatile uint32_t i = 0; i < 800000u; i++) __asm volatile("nop");
+    gpio_set_data(GPIOA, CAM_RST_PIN, 1);
+    for (volatile uint32_t i = 0; i < 2400000u; i++) __asm volatile("nop");
+}
+
+static int init_camera(void)
+{
+    i2c_soft_t i2c1;
+    int ret = i2c_soft_init_default_idx(&i2c1, 1, 50000);
+    if (ret) {
+        printf("[S300][DSP_Debug][CAM] i2c init fail %d\r\n", ret);
+        return ret;
+    }
+    cam_gpio_init();
+    cam_power_on_sequence();
+    (void)i2c_soft_bus_recover(&i2c1);
+
+    uint8_t saddr = 0x3C;
+    int p3c = i2c_soft_probe(&i2c1, 0x3C);
+    int p3d = i2c_soft_probe(&i2c1, 0x3D);
+    if (p3c != 0 && p3d == 0) saddr = 0x3D;
+
+    uint8_t idh = 0, idl = 0;
+    (void)i2c_soft_mem_read(&i2c1, saddr, 0x300Au, true, &idh, 1);
+    (void)i2c_soft_mem_read(&i2c1, saddr, 0x300Bu, true, &idl, 1);
+    printf("[S300][DSP_Debug][CAM] OV5640 ID: 0x%02X 0x%02X (addr=0x%02X)\r\n", idh, idl, saddr);
+    
+    /* Just to verify it works, flash the light if needed, but skipped for speed */
+    /* Initialize OV5640 to RGB565 or YUV422? Video driver expects RGB565 usually if we use CAMREA_RGB565. 
+       But Display_Demo used OV5640_FMT_YUV422_YUYV.
+       The init_video call in main uses CAMREA_RGB565.
+       However, the DVP interface might do the conversion if configured.
+       Let's stick to what Display_Demo did first: OV5640_FMT_YUV422_YUYV.
+       Wait, if video driver sets DVP to input RGB565, then camera must output RGB565.
+       Let's check init_video arguments: init_video(EM_DVP, CAMREA_RGB565, C1080X720P);
+       In Display_Demo: initialization was YUV422.
+       If I look at Display_Demo/Src/display_demo_app.c (not read yet), I might see init_video usage.
+       Let's assume the user wants the camera merely to run for timing signals if using DVP, 
+       but if we want to SEE the camera image we need match. 
+       Here we are displaying BUFFERS from DSP, not Camera stream directly on screen?
+       Actually, init_video starts the video subsystem. The MM module might rely on DVP signals.
+       Let's follow Display_Demo's camera init: YUV422_YUYV.
+       And check check if I should change init_video param.
+       In main.c currently: init_video(EM_DVP, CAMREA_RGB565, ...);
+       Let's use RGB565 for the camera init to match the main.c expectation if possible, or stick to reference.
+       ov5640.h likely has OV5640_FMT_RGB565.
+       Let's try RGB565 to match the init_video param I saw in main.
+    */
+    ret = ov5640_init(&i2c1, saddr, OV5640_FMT_RGB565_R5G3_G3B5);
+    printf("[S300][DSP_Debug][CAM] ov5640_init ret=%d\r\n", ret);
+    return ret;
+}
+
 int main(void)
 {
     board_init();
@@ -528,6 +772,10 @@ int main(void)
     /* Initialize Mailbox */
     printf("[S300][DSP_Debug] Init Mailbox...\r\n");
     init_mailbox(MAILBOX_BASE, 4, MAILBOX_IRQ_NONE);
+
+    /* Initialize Camera (Power on & I2C) */
+    printf("[S300][DSP_Debug] Init Camera...\r\n");
+    init_camera();
 
     /* Initialize Display */
     printf("[S300][DSP_Debug] Init Display...\r\n");

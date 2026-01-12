@@ -27,27 +27,44 @@ set {unsigned int}0xE000ED08 = 0x20000000
 set {unsigned int}0x4000a018 = (*(unsigned int*)0x4000a018) & ~1
 monitor sleep 100
 
-# Load DSP boot images
-# Images are in @DSP_IMAGES_DIR@
+# Load S300 AI Model Resources
+# Algorithm models are in @ALGORITHM_MODELS_DIR@
+# Default base firmware is in @DSP_IMAGES_DIR@
 
 # Use shell to generate a temporary GDB script that only restores non-empty files
 shell echo "# Generated restore commands" > restore_imgs.tmp
-shell if [ -s "@DSP_IMAGES_DIR@/dsp_dtcm_boot.bin" ]; then echo "restore @DSP_IMAGES_DIR@/dsp_dtcm_boot.bin binary 0x44800000" >> restore_imgs.tmp; fi
-shell if [ -s "@DSP_IMAGES_DIR@/dsp_ptcm_boot.bin" ]; then echo "restore @DSP_IMAGES_DIR@/dsp_ptcm_boot.bin binary 0x44A00000" >> restore_imgs.tmp; fi
-shell if [ -s "@DSP_IMAGES_DIR@/dsp_sram0_boot.bin" ]; then echo "restore @DSP_IMAGES_DIR@/dsp_sram0_boot.bin binary 0x44000000" >> restore_imgs.tmp; fi
+shell if [ ! -z "$MOD" ]; then \
+    echo "echo >>> Loading S300 AI Model: $MOD" >> restore_imgs.tmp; \
+    IMG_DIR="@ALGORITHM_MODELS_DIR@/$MOD"; \
+    PREFIX="model"; \
+else \
+    echo "echo >>> Loading Default S300 Firmware" >> restore_imgs.tmp; \
+    IMG_DIR="@DSP_IMAGES_DIR@"; \
+    PREFIX="dsp"; \
+fi; \
+if [ -s "$IMG_DIR/${PREFIX}_dtcm_boot.bin" ]; then echo "restore $IMG_DIR/${PREFIX}_dtcm_boot.bin binary 0x44800000" >> restore_imgs.tmp; fi; \
+if [ -s "$IMG_DIR/${PREFIX}_ptcm_boot.bin" ]; then echo "restore $IMG_DIR/${PREFIX}_ptcm_boot.bin binary 0x44A00000" >> restore_imgs.tmp; fi; \
+if [ -s "$IMG_DIR/${PREFIX}_sram0_boot.bin" ]; then echo "restore $IMG_DIR/${PREFIX}_sram0_boot.bin binary 0x44000000" >> restore_imgs.tmp; fi
 
 source restore_imgs.tmp
 shell rm restore_imgs.tmp
 
 # Go!
-echo \n>>> Starting MM Test demo with DSP boot...\n
+echo \n>>> Starting MM Test demo with S300 Model initialized...\n
 
 # Set temporary breakpoint at app init (after PSRAM init) to load PSRAM image
 tbreak display_demo_app_init
 commands
   echo \n>>> PSRAM initialized. Checking for PSRAM image...\n
   shell echo "# Generated restore commands for PSRAM" > restore_psram.tmp
-  shell if [ -s "@DSP_IMAGES_DIR@/dsp_psram_boot.bin" ]; then echo "restore @DSP_IMAGES_DIR@/dsp_psram_boot.bin binary 0x80000000" >> restore_psram.tmp; fi
+  shell if [ ! -z "$MOD" ]; then \
+      IMG_DIR="@ALGORITHM_MODELS_DIR@/$MOD"; \
+      PREFIX="model"; \
+  else \
+      IMG_DIR="@DSP_IMAGES_DIR@"; \
+      PREFIX="dsp"; \
+  fi; \
+  if [ -s "$IMG_DIR/${PREFIX}_psram_boot.bin" ]; then echo "restore $IMG_DIR/${PREFIX}_psram_boot.bin binary 0x80000000" >> restore_psram.tmp; fi
   source restore_psram.tmp
   shell rm restore_psram.tmp
   continue

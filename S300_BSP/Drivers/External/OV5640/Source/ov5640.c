@@ -230,7 +230,7 @@ static const uint16_t ov5640_yuv422_cfg[][2] =
     {0x3036, 0x8C},//PLL
     {0x3C07, 0x07},//light meter 1 threshold L
     {0x3820, 0x41},//Sensor flip , ISP flip;Bit[2]: ISP vflip  Bit[1]: Sensor vflip
-    {0x3821, 0x01},//Timing Control Bit[2]: ISP mirror Bit[1]: Sensor mirror
+    {0x3821, 0x00},//Timing Control Bit[2]: ISP mirror Bit[1]: Sensor mirror
     {0x3814, 0x31},//image windowing registers 0x3800-0x3813  timing control registers 0x3800-0x3821
     {0x3815, 0x31},
     {0x3800, 0x00},//图像窗口 Bit[7:4]: Debug mode Bit[3:0]: X address start[11:8]  -0

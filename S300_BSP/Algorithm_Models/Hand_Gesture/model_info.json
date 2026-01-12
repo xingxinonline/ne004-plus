@@ -1,0 +1,10 @@
+{
+    "name": "Hand Gesture",
+    "id": "hand_gesture",
+    "version": "0.9.0",
+    "date": "2025-12-20",
+    "description": "Hand gesture recognition (Beta).",
+    "compatibility": {
+        "dsp_fw": ">=1.5.0"
+    }
+}

@@ -86,6 +86,7 @@ add_custom_target(dbg_mm_test
 
 # Configure GDB script with absolute paths
 set(DSP_IMAGES_DIR ${PROJECT_DIR}/DSP_Images)
+set(ALGORITHM_MODELS_DIR ${ROOT}/Algorithm_Models)
 configure_file(
     ${PROJECT_DIR}/gdbinit.dsp.gdb.in
     ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.dsp.gdb
@@ -101,3 +102,37 @@ add_custom_target(dbg_mm_test_dsp
     DEPENDS ${TARGET}
     USES_TERMINAL
 )
+
+# Auto-generate debug targets for each algorithm model
+# e.g. Face_Detection -> dbg_mm_test_face-detection
+file(GLOB ALG_MODELS RELATIVE ${ALGORITHM_MODELS_DIR} ${ALGORITHM_MODELS_DIR}/*)
+
+foreach(MODEL_DIR ${ALG_MODELS})
+    if(IS_DIRECTORY ${ALGORITHM_MODELS_DIR}/${MODEL_DIR})
+        # Try to get version info
+        execute_process(
+            COMMAND python3 ${ROOT}/tools/get_model_version.py ${ALGORITHM_MODELS_DIR}/${MODEL_DIR}
+            OUTPUT_VARIABLE MODEL_VER
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+
+        if("${MODEL_VER}" STREQUAL "")
+            set(MODEL_VER "Unknown")
+        endif()
+
+        # Convert Face_Detection to face-detection
+        string(TOLOWER ${MODEL_DIR} MODEL_LOWER)
+        string(REPLACE "_" "-" MODEL_KEBAB ${MODEL_LOWER})
+
+        add_custom_target(dbg_mm_test_${MODEL_KEBAB}
+            COMMENT "Launching GDB for ${TARGET} with Algorithm Model: ${MODEL_DIR} [v${MODEL_VER}]"
+            COMMAND ${CMAKE_COMMAND} -E env MOD=${MODEL_DIR} arm-none-eabi-gdb -q
+            -ex "file $<TARGET_FILE:${TARGET}>"
+            -ex "target extended-remote :${GDB_PORT}"
+            -x ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.dsp.gdb
+            DEPENDS ${TARGET}
+            USES_TERMINAL
+        )
+    endif()
+endforeach()

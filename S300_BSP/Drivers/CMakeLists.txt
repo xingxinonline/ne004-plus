@@ -11,6 +11,8 @@ target_include_directories(s300_video PUBLIC
     ${PROJECT_SOURCE_DIR}/CMSIS/Device/PiMCHIP/S300/Include
     ${PROJECT_SOURCE_DIR}/CMSIS/Core/Include
     ${DRIVERS_ROOT}/SoC/MM/Include
+    ${DRIVERS_ROOT}/SoC/GPIO/Include
+    ${DRIVERS_ROOT}/SoC/RCC/Include
     ${PROJECT_SOURCE_DIR}/Boards/generic_evb
 )
 

@@ -4,16 +4,12 @@
 #include "uart.h"
 #include <stdio.h>
 
-#ifndef UART_DEBUG_IDX
-    #define UART_DEBUG_IDX BOARD_UART_DEBUG_IDX
-#endif
-
-static void board_uart3_pins_init(void)
+static void board_uart_pins_init(void)
 {
-    // GPIOA 26/27 复用为 UART3
+    // GPIO 复用为 UART
     set_cortex_m4_apb1_clock(RCC_CM4_APB1_GPIO, true);
-    set_gpio_function(GPIOA, 26, FUNCTION_3);
-    set_gpio_function(GPIOA, 27, FUNCTION_3);
+    set_gpio_function(BOARD_DEBUG_UART_PORT, BOARD_DEBUG_UART_TX_PIN, BOARD_DEBUG_UART_FUNCTION);
+    set_gpio_function(BOARD_DEBUG_UART_PORT, BOARD_DEBUG_UART_RX_PIN, BOARD_DEBUG_UART_FUNCTION);
 }
 
 void board_clock_init(void)
@@ -28,16 +24,20 @@ void board_clock_init(void)
 
 void board_debug_uart_init(void)
 {
-#if BOARD_UART3_DEBUG_ENABLE
-    // 开启 UART3 时钟并初始化 921600 8N1
-    set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART3, true);
-    board_uart3_pins_init();
-    init_uart(UART_DEBUG_IDX, UARTTYPE_STD_SERIAL, rcc_get_clock(RCC_CLOCK_APB1), 921600);
-    // 关闭缓冲，避免半主机影响
+    // 开启 UART 时钟
+    // 注意：当前仅适配 UART3，如需切换 UART0-2 需根据 IDX 修改时钟
+    if (BOARD_DEBUG_UART_IDX == 3) {
+        set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART3, true);
+    } else {
+        // TODO: Handle other UART clocks
+        set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART0, true); 
+    }
+
+    board_uart_pins_init();
+    init_uart(BOARD_DEBUG_UART_IDX, UARTTYPE_STD_SERIAL, rcc_get_clock(RCC_CLOCK_APB1), BOARD_DEBUG_UART_BAUDRATE);
+    
+    // 关闭缓冲
     setvbuf(stdout, NULL, _IONBF, 0);
-#else
-    (void)UART_DEBUG_IDX;
-#endif
 }
 
 void board_init(void)

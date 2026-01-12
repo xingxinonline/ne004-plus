@@ -1,6 +1,9 @@
 
 #include "video.h"
 #include "s300.h"
+#include "board.h"
+#include "gpio.h"
+#include "rcc.h"
 
 #define EXTRACT_COMBINE_REG1(cfg_data_row, cfg_start_x) \
     ((((cfg_data_row) >> 8) & 0xFF) << 24) | \
@@ -134,6 +137,14 @@ void init_video_with_type(emDVP dvp, emCameraFormatPro cameraPro, emMMProcessPro
     REG32(DSP_RCC_BASE + 0x0c) |= 0x20;
     REG32(DSP_RCC_BASE + 0x40) |= 0x11;
     delay_ms(10);
+
+#if defined(BOARD_LCD_BL_PIN) && (BOARD_LCD_BL_PIN != 0xFF)
+    // Init Backlight
+    set_cortex_m4_apb1_clock(RCC_CM4_APB1_GPIO, true);
+    gpio_set_function(BOARD_LCD_BL_PORT, BOARD_LCD_BL_PIN, FUNCTION_2);
+    gpio_set_direction(BOARD_LCD_BL_PORT, BOARD_LCD_BL_PIN, 1);
+    gpio_set_data(BOARD_LCD_BL_PORT, BOARD_LCD_BL_PIN, BOARD_LCD_BL_ACTIVE_LEVEL);
+#endif
 
     // Common Regs
     // REG32(DSP_VIDEO_SS_BASE + 0x00) = (0 | (1 << 8));//0x100:YUV , 0x101:RGB565

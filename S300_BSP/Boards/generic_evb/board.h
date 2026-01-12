@@ -38,12 +38,63 @@ extern "C" {
 #define BOARD_LCD_HEIGHT 160
 #endif
 
+// LCD Backlight Configuration
+// Port: Default GPIOA if not specified (will be resolved in driver)
+#ifndef BOARD_LCD_BL_PORT
+#define BOARD_LCD_BL_PORT GPIOA
+#endif
+// Pin: 0xFF for none (connected to VCC or always on)
+#ifndef BOARD_LCD_BL_PIN
+#define BOARD_LCD_BL_PIN 0xFF
+#endif
+// Active Level: 1=High, 0=Low
+#ifndef BOARD_LCD_BL_ACTIVE_LEVEL
+#define BOARD_LCD_BL_ACTIVE_LEVEL 1
+#endif
+
 // Display Configuration (must be <= LCD size)
 #ifndef BOARD_DISPLAY_WIDTH
 #define BOARD_DISPLAY_WIDTH BOARD_LCD_WIDTH
 #endif
 #ifndef BOARD_DISPLAY_HEIGHT
 #define BOARD_DISPLAY_HEIGHT BOARD_LCD_HEIGHT
+#endif
+
+// Debug UART Configuration
+#ifndef BOARD_DEBUG_UART_IDX
+#define BOARD_DEBUG_UART_IDX 3
+#endif
+#ifndef BOARD_DEBUG_UART_BAUDRATE
+#define BOARD_DEBUG_UART_BAUDRATE 115200
+#endif
+#ifndef BOARD_DEBUG_UART_PORT
+#define BOARD_DEBUG_UART_PORT GPIOA
+#endif
+#ifndef BOARD_DEBUG_UART_TX_PIN
+#define BOARD_DEBUG_UART_TX_PIN 26
+#endif
+#ifndef BOARD_DEBUG_UART_RX_PIN
+#define BOARD_DEBUG_UART_RX_PIN 27
+#endif
+#ifndef BOARD_DEBUG_UART_FUNCTION
+#define BOARD_DEBUG_UART_FUNCTION FUNCTION_3
+#endif
+
+// Camera I2C Configuration (Soft I2C)
+#ifndef BOARD_CAMERA_I2C_IDX
+#define BOARD_CAMERA_I2C_IDX 1
+#endif
+#ifndef BOARD_CAMERA_I2C_PORT
+#define BOARD_CAMERA_I2C_PORT GPIOA
+#endif
+#ifndef BOARD_CAMERA_I2C_SCL_PIN
+#define BOARD_CAMERA_I2C_SCL_PIN 0
+#endif
+#ifndef BOARD_CAMERA_I2C_SDA_PIN
+#define BOARD_CAMERA_I2C_SDA_PIN 1
+#endif
+#ifndef BOARD_CAMERA_I2C_FUNCTION
+#define BOARD_CAMERA_I2C_FUNCTION FUNCTION_2
 #endif
 
 #if (BOARD_DISPLAY_WIDTH > BOARD_LCD_WIDTH) || (BOARD_DISPLAY_HEIGHT > BOARD_LCD_HEIGHT)

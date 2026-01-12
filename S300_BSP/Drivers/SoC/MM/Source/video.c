@@ -435,7 +435,7 @@ void init_high_camera_st77_lcd(emMM mm,emCameraFormatPro cameraPro,emMMProcessPr
   (void)mmPro;
 
   //REG32(DSP_VIDEO_SS_BASE + 0x00) = (1 | (0 << 8));//0x100:YUV , 0x101:RGB565
-    REG32(DSP_VIDEO_SS_BASE + 0x00) = (1 | (1 << 8));//0x100:YUV , 0x101:RGB565
+    REG32(DSP_VIDEO_SS_BASE + 0x00) = (0 | (1 << 8));//0x100:YUV , 0x101:RGB565
     // REG32(DSP_VIDEO_SS_BASE + 0x00) = (0 | (1 << 8));//0x100:YUV , 0x101:RGB565
 
     REG32(DSP_VIDEO_SS_BASE + 0x04) = (SENSOR_IMAGE_WIDTH | (SENSOR_IMAGE_HEIGHT << 16));//0x2d00500;//0x7890a20;//(SENSOR_IMAGE_WIDTH | (IMAGE_HEIGHT << 16));

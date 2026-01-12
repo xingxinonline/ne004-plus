@@ -224,8 +224,8 @@ static const uint16_t ov5640_init_cfg[][2] =
 
 static const uint16_t ov5640_yuv422_cfg[][2] =
 {
-    {0x4300, 0x61},//bit[7:4] 0x3 YUV422 ,bit[3:0] 0x0 Output sequence: YUYV
-    {0x501F, 0x01},//Format select 0x01 ISP  RGB , 0x00 ISP YUV422
+    {0x4300, 0x30},//bit[7:4] 0x3 YUV422 ,bit[3:0] 0x0 Output sequence: YUYV
+    {0x501F, 0x00},//Format select 0x01 ISP  RGB , 0x00 ISP YUV422
     {0x3035, 0x41},//PLL
     {0x3036, 0x8C},//PLL
     {0x3C07, 0x07},//light meter 1 threshold L

@@ -5,12 +5,22 @@
 #include "i2c_soft.h"
 #include "ov5640.h"
 #include "camera_ov5640.h"
+#include "board.h"
 
 #ifndef CAM_RST_PIN
+#if defined(BOARD_CAM_RST_PIN)
+#define CAM_RST_PIN BOARD_CAM_RST_PIN
+#else
 #define CAM_RST_PIN  15u  /* GPIOA15 */
 #endif
+#endif
+
 #ifndef CAM_PWDN_PIN
+#if defined(BOARD_CAM_PWDN_PIN)
+#define CAM_PWDN_PIN BOARD_CAM_PWDN_PIN
+#else
 #define CAM_PWDN_PIN 6u   /* GPIOA6  */
+#endif
 #endif
 
 static void cam_gpio_init(void)

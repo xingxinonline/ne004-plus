@@ -5,14 +5,25 @@
 #include "i2c_soft.h"
 #include "ov5640.h"
 #include <stdio.h>
+#include "board.h"
 
 #ifndef UART_DEBUG_IDX
     #define UART_DEBUG_IDX 3u
 #endif
 
 /* 假设板卡 OV5640 的复位与电源控制分别接在以下引脚，若不一致请按实际修改： */
+#if defined(BOARD_CAM_RST_PIN)
+#define CAM_RST_PIN BOARD_CAM_RST_PIN
+#else
 #define CAM_RST_PIN  15u  /* GPIOA15 */
+#endif
+
+#if defined(BOARD_CAM_PWDN_PIN)
+#define CAM_PWDN_PIN BOARD_CAM_PWDN_PIN
+#else
 #define CAM_PWDN_PIN 6u   /* GPIOA6  */
+#endif
+
 /* 可选：启用内置色条测试图，便于快速验证视频链路（1 开启 / 0 关闭） */
 #ifndef OV5640_ENABLE_COLOR_BAR
     #define OV5640_ENABLE_COLOR_BAR 1

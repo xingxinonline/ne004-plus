@@ -224,8 +224,8 @@ static const uint16_t ov5640_init_cfg[][2] =
 
 static const uint16_t ov5640_yuv422_cfg[][2] =
 {
-    {0x4300, 0x30},//bit[7:4] 0x3 YUV422 ,bit[3:0] 0x0 Output sequence: YUYV
-    {0x501F, 0x00},//Format select 0x01 ISP  RGB , 0x00 ISP YUV422
+    {0x4300, 0x61},//bit[7:4] 0x3 YUV422 ,bit[3:0] 0x0 Output sequence: YUYV
+    {0x501F, 0x01},//Format select 0x01 ISP  RGB , 0x00 ISP YUV422
     {0x3035, 0x41},//PLL 
     {0x3036, 0x8C},//PLL   
     {0x3C07, 0x07},//light meter 1 threshold L
@@ -306,7 +306,17 @@ int ov5640_init(i2c_soft_t *i2c, uint8_t saddr, ov5640_format_t fmt)
     {
         uint16_t reg = ov5640_yuv422_cfg[i][0];
         uint8_t  val = (uint8_t)ov5640_yuv422_cfg[i][1];
-        // if (reg == 0x4300) val = (uint8_t)fmt; /* 输出序列切换 */
+
+        if (reg == 0x4300) {
+            val = (uint8_t)fmt;
+        } else if (reg == 0x501F) {
+            if (fmt == OV5640_FMT_RGB565_R5G3_G3B5) {
+                val = 0x01; // ISP RGB
+            } else {
+                val = 0x00; // ISP YUV422
+            }
+        }
+
         if (wr(i2c, saddr, reg, val)) return -1;
     }
     return 0;

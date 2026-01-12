@@ -24,6 +24,13 @@
 #include "face_tracker.h"
 #include "eyes.h"
 #include "display_demo_app.h"
+#include "board.h"
+
+#if BOARD_CAMERA_FORMAT == 0
+  #define APP_CAM_PRO CAMREA_RGB565
+#else
+  #define APP_CAM_PRO CAMREA_YUV422
+#endif
 
 void display_demo_app_init(uint32_t (*get_millis)(void))
 {
@@ -35,7 +42,7 @@ void display_demo_app_init(uint32_t (*get_millis)(void))
 
     /* 视频子系统（包含面板初始化） */
     printf("[S300][DisplayDemo] init video...\r\n");
-    init_video(EM_DVP, CAMREA_YUV422, C1080X720P);
+    init_video(EM_DVP, APP_CAM_PRO, C1080X720P);
 
     /* M4 <-> DSP 邮箱通信与握手 */
     init_mailbox(MAILBOX_BASE, 4, MAILBOX_IRQ_NONE);

@@ -19,18 +19,25 @@
 #include "camera_ov5640.h"
 #include "face_tracker.h"
 #include "display_demo_app.h"
+#include "board.h"
+
+#if BOARD_CAMERA_FORMAT == 0
+  #define APP_CAM_PRO CAMREA_RGB565
+#else
+  #define APP_CAM_PRO CAMREA_YUV422
+#endif
 
 void display_demo_app_init(uint32_t (*get_millis)(void))
 {
     /* 摄像头上电与探测（失败则仅初始化显示链路） */
     int cam_ret = camera_ov5640_preinit();
     if (cam_ret != 0) {
-        printf("[S300][MM_Test_Demo][WARN] OV5640 init failed (%d), continue to init video for display path only.\r\n", cam_ret);
+        printf("[S300][DisplayDemo][WARN] OV5640 init failed (%d), continue to init video for display path only.\r\n", cam_ret);
     }
 
     /* 视频子系统（包含面板初始化） */
-    printf("[S300][MM_Test_Demo] init video...\r\n");
-    init_video(EM_DVP, CAMREA_YUV422, C1080X720P);
+    printf("[S300][DisplayDemo] init video...\r\n");
+    init_video(EM_DVP, APP_CAM_PRO, C1080X720P);
 
     /* 初始化显存与 Alpha 通道，并激活 Frame 0 */
     {

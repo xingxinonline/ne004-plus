@@ -7,6 +7,12 @@
 #include "camera_ov5640.h"
 #include "board.h"
 
+#if BOARD_CAMERA_FORMAT == 0
+  #define APP_OV_FMT OV5640_FMT_RGB565_R5G3_G3B5
+#else
+  #define APP_OV_FMT OV5640_FMT_YUV422_YUYV
+#endif
+
 #ifndef CAM_RST_PIN
 #if defined(BOARD_CAM_RST_PIN)
 #define CAM_RST_PIN BOARD_CAM_RST_PIN
@@ -71,7 +77,7 @@ int camera_ov5640_preinit(void)
     for (volatile uint32_t i = 0; i < 4800000u; ++i) __asm volatile("nop");
     int lf = ov5640_set_light(&i2c1, saddr, false);
     printf("Disable light: %s\n", lf == 0 ? "OK" : "FAIL");
-    ret = ov5640_init(&i2c1, saddr, OV5640_FMT_YUV422_YUYV);
+    ret = ov5640_init(&i2c1, saddr, APP_OV_FMT);
     printf("[S300][DisplayDemo][CAM] ov5640_init ret=%d\r\n", ret);
     return ret;
 }

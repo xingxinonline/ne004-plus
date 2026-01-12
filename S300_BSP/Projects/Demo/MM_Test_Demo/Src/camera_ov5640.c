@@ -13,54 +13,31 @@
   #define APP_OV_FMT OV5640_FMT_YUV422_YUYV
 #endif
 
-#ifndef CAM_RST_PIN
-#if defined(BOARD_CAM_RST_PIN)
-#define CAM_RST_PIN BOARD_CAM_RST_PIN
-#else
-#define CAM_RST_PIN  15u  /* GPIOA15 */
-#endif
-#endif
-
-#ifndef CAM_PWDN_PIN
-#if defined(BOARD_CAM_PWDN_PIN)
-#define CAM_PWDN_PIN BOARD_CAM_PWDN_PIN
-#else
-#define CAM_PWDN_PIN 6u   /* GPIOA6  */
-#endif
-#endif
-
-static void cam_gpio_init(void)
-{
-    set_cortex_m4_apb1_clock(RCC_CM4_APB1_GPIO, true);
-    gpio_set_function(GPIOA, CAM_RST_PIN, FUNCTION_2);
-    gpio_set_mode(GPIOA, CAM_RST_PIN, GPIO_UP);
-    gpio_set_direction(GPIOA, CAM_RST_PIN, 1);
-    gpio_set_function(GPIOA, CAM_PWDN_PIN, FUNCTION_2);
-    gpio_set_mode(GPIOA, CAM_PWDN_PIN, GPIO_UP);
-    gpio_set_direction(GPIOA, CAM_PWDN_PIN, 1);
-}
-
-static void cam_power_on_sequence(void)
-{
-    gpio_set_data(GPIOA, CAM_RST_PIN, 0);
-    gpio_set_data(GPIOA, CAM_PWDN_PIN, 1);
-    for (volatile uint32_t i = 0; i < 800000u; i++) __asm volatile("nop");
-    gpio_set_data(GPIOA, CAM_PWDN_PIN, 0);
-    for (volatile uint32_t i = 0; i < 800000u; i++) __asm volatile("nop");
-    gpio_set_data(GPIOA, CAM_RST_PIN, 1);
-    for (volatile uint32_t i = 0; i < 2400000u; i++) __asm volatile("nop");
-}
-
 int camera_ov5640_preinit(void)
 {
     i2c_soft_t i2c1;
-    int ret = i2c_soft_init_default_idx(&i2c1, 1, 50000);
+    
+    // Use Board Config for I2C
+    i2c_soft_cfg_t cfg = {
+        .port = BOARD_CAMERA_I2C_PORT,
+        .pin_scl = BOARD_CAMERA_I2C_SCL_PIN,
+        .pin_sda = BOARD_CAMERA_I2C_SDA_PIN,
+        .func_scl = BOARD_CAMERA_I2C_FUNCTION,
+        .func_sda = BOARD_CAMERA_I2C_FUNCTION,
+        .pull_mode = GPIO_UP,
+        .bus_hz = 50000
+    };
+    set_cortex_m4_apb1_clock(RCC_CM4_APB1_GPIO, true);
+    int ret = i2c_soft_init(&i2c1, &cfg, SystemCoreClock);
+
     if (ret) {
         printf("[S300][DisplayDemo][CAM] i2c init fail %d\r\n", ret);
         return ret;
     }
-    cam_gpio_init();
-    cam_power_on_sequence();
+    
+    // Use driver hard init
+    ov5640_hard_init();
+    
     (void)i2c_soft_bus_recover(&i2c1);
 
     uint8_t saddr = 0x3C;

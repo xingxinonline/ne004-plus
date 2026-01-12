@@ -8,20 +8,7 @@
 #include "board.h"
 
 #ifndef UART_DEBUG_IDX
-    #define UART_DEBUG_IDX 3u
-#endif
-
-/* 假设板卡 OV5640 的复位与电源控制分别接在以下引脚，若不一致请按实际修改： */
-#if defined(BOARD_CAM_RST_PIN)
-#define CAM_RST_PIN BOARD_CAM_RST_PIN
-#else
-#define CAM_RST_PIN  15u  /* GPIOA15 */
-#endif
-
-#if defined(BOARD_CAM_PWDN_PIN)
-#define CAM_PWDN_PIN BOARD_CAM_PWDN_PIN
-#else
-#define CAM_PWDN_PIN 6u   /* GPIOA6  */
+    #define UART_DEBUG_IDX BOARD_DEBUG_UART_IDX
 #endif
 
 /* 可选：启用内置色条测试图，便于快速验证视频链路（1 开启 / 0 关闭） */
@@ -33,38 +20,16 @@
     #define OV5640_ENABLE_LIGHT 1
 #endif
 
-static void gpio_init_for_camera(void)
-{
-    set_cortex_m4_apb1_clock(RCC_CM4_APB1_GPIO, true);
-    /* RST/PWDN 推挽输出，上拉 */
-    gpio_set_function(GPIOA, CAM_RST_PIN, FUNCTION_2);
-    gpio_set_mode(GPIOA, CAM_RST_PIN, GPIO_UP);
-    gpio_set_direction(GPIOA, CAM_RST_PIN, 1);
-    gpio_set_function(GPIOA, CAM_PWDN_PIN, FUNCTION_2);
-    gpio_set_mode(GPIOA, CAM_PWDN_PIN, GPIO_UP);
-    gpio_set_direction(GPIOA, CAM_PWDN_PIN, 1);
-}
-
-static void camera_power_on_sequence(void)
-{
-    /* 参照原始序列：PWDN 高、RST 低 -> 延时 -> PWDN 低 -> 延时 -> RST 高 -> 延时 */
-    gpio_set_data(GPIOA, CAM_RST_PIN, 0);
-    gpio_set_data(GPIOA, CAM_PWDN_PIN, 1);
-    for (volatile uint32_t i = 0; i < 800000; i++) __asm volatile("nop");
-    gpio_set_data(GPIOA, CAM_PWDN_PIN, 0);
-    for (volatile uint32_t i = 0; i < 800000; i++) __asm volatile("nop");
-    gpio_set_data(GPIOA, CAM_RST_PIN, 1);
-    for (volatile uint32_t i = 0; i < 2400000; i++) __asm volatile("nop");
-}
-
 static void debug_uart_init(void)
 {
-    set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART3, true);
+    // Use Board Macros
+    set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART3, true); // Assuming IDX 3 for now or use switch
     set_cortex_m4_apb1_clock(RCC_CM4_APB1_GPIO, true);
-    /* UART3: GPIOA26/27 复用 */
-    gpio_set_function(GPIOA, 26, FUNCTION_3);
-    gpio_set_function(GPIOA, 27, FUNCTION_3);
-    init_uart(UART_DEBUG_IDX, UARTTYPE_STD_SERIAL, rcc_get_clock(RCC_CLOCK_APB1), 115200);
+    
+    gpio_set_function(BOARD_DEBUG_UART_PORT, BOARD_DEBUG_UART_TX_PIN, BOARD_DEBUG_UART_FUNCTION);
+    gpio_set_function(BOARD_DEBUG_UART_PORT, BOARD_DEBUG_UART_RX_PIN, BOARD_DEBUG_UART_FUNCTION);
+    
+    init_uart(UART_DEBUG_IDX, UARTTYPE_STD_SERIAL, rcc_get_clock(RCC_CLOCK_APB1), BOARD_DEBUG_UART_BAUDRATE);
     setvbuf(stdout, NULL, _IONBF, 0);
 }
 
@@ -72,17 +37,30 @@ int main(void)
 {
     debug_uart_init();
     printf("[OV5640] I2C1 soft init demo\n");
-    /* 初始化软 I2C，索引 1 -> GPIOA0/A1，50kHz（降速便于兼容上电不稳时序） */
+    /* 初始化软 I2C */
     i2c_soft_t i2c1;
-    int ret = i2c_soft_init_default_idx(&i2c1, 1, 50000);
+    
+    i2c_soft_cfg_t cfg = {
+        .port = BOARD_CAMERA_I2C_PORT,
+        .pin_scl = BOARD_CAMERA_I2C_SCL_PIN,
+        .pin_sda = BOARD_CAMERA_I2C_SDA_PIN,
+        .func_scl = BOARD_CAMERA_I2C_FUNCTION,
+        .func_sda = BOARD_CAMERA_I2C_FUNCTION,
+        .pull_mode = GPIO_UP,
+        .bus_hz = 50000
+    };
+    int ret = i2c_soft_init(&i2c1, &cfg, SystemCoreClock);
+
     if (ret)
     {
         printf("i2c init fail %d\n", ret);
         for (;;) __WFI();
     }
     (*((volatile uint32_t*)(RCC_BASE + 0x0018))) |= 1;
-    gpio_init_for_camera();
-    camera_power_on_sequence();
+
+    // Use driver hard init
+    ov5640_hard_init();
+    
     /* 恢复总线并探测 0x3C/0x3D，选择有效地址 */
     i2c_soft_bus_recover(&i2c1);
     uint8_t saddr = 0x3C;

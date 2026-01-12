@@ -31,8 +31,8 @@
 
 void init_video(emDVP dvp, emCameraFormatPro formatPro, emMMProcessPro mmPro)
 {
-    // 默认使用 ST7735S (HS180S10B)，或者您可以修改此处默认值
-    init_video_with_type(dvp, formatPro, mmPro, LCD_ST7735S);
+    // 使用 board.h 中的配置，默认为 ST7735S
+    init_video_with_type(dvp, formatPro, mmPro, (emLcdType)BOARD_LCD_TYPE);
 }
 
 static void lcd_spi_init_st7735s(void)
@@ -137,8 +137,11 @@ void init_video_with_type(emDVP dvp, emCameraFormatPro cameraPro, emMMProcessPro
 
     // Common Regs
     // REG32(DSP_VIDEO_SS_BASE + 0x00) = (0 | (1 << 8));//0x100:YUV , 0x101:RGB565
-    /* 0x100 seems common for both implementations provided */
-    REG32(DSP_VIDEO_SS_BASE + 0x00) = 0x100;
+    if (cameraPro == CAMREA_RGB565) {
+        REG32(DSP_VIDEO_SS_BASE + 0x00) = 0x101;
+    } else {
+        REG32(DSP_VIDEO_SS_BASE + 0x00) = 0x100;
+    }
 
 
     REG32(DSP_VIDEO_SS_BASE + 0x04) = (SENSOR_IMAGE_WIDTH | (SENSOR_IMAGE_HEIGHT << 16));

@@ -26,6 +26,36 @@ extern "C" {
 #define BOARD_CAM_PWDN_PIN 6u
 #endif
 
+// LCD Configuration
+// Type: 0=ST7735S, 1=ST7789
+#ifndef BOARD_LCD_TYPE
+#define BOARD_LCD_TYPE 0
+#endif
+#ifndef BOARD_LCD_WIDTH
+#define BOARD_LCD_WIDTH 128
+#endif
+#ifndef BOARD_LCD_HEIGHT
+#define BOARD_LCD_HEIGHT 160
+#endif
+
+// Display Configuration (must be <= LCD size)
+#ifndef BOARD_DISPLAY_WIDTH
+#define BOARD_DISPLAY_WIDTH BOARD_LCD_WIDTH
+#endif
+#ifndef BOARD_DISPLAY_HEIGHT
+#define BOARD_DISPLAY_HEIGHT BOARD_LCD_HEIGHT
+#endif
+
+#if (BOARD_DISPLAY_WIDTH > BOARD_LCD_WIDTH) || (BOARD_DISPLAY_HEIGHT > BOARD_LCD_HEIGHT)
+#error "Display configuration cannot exceed LCD screen size"
+#endif
+
+// Camera Configuration
+// 0: RGB565, 1: YUV422 (Default: 0 - RGB565)
+#ifndef BOARD_CAMERA_FORMAT
+#define BOARD_CAMERA_FORMAT 0
+#endif
+
 // 初始化板级系统时钟（切换 CM4 到 PLL 等），需在 UART 之前调用
 void board_clock_init(void);
 

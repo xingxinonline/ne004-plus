@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "s300.h"
+#include "board.h"
 
 /* 兼容旧代码中使用的基本类型与寄存器访问宏 */
 #ifndef UINT32
@@ -32,8 +33,16 @@ typedef uint8_t UINT8;
 /* display  */
 #define DISP_START_X                (0)
 #define DISP_START_Y                (0)
+#ifndef BOARD_DISPLAY_WIDTH
 #define DISP_IMAGE_WIDTH            (128)
+#else
+#define DISP_IMAGE_WIDTH            (BOARD_DISPLAY_WIDTH)
+#endif
+#ifndef BOARD_DISPLAY_HEIGHT
 #define DISP_IMAGE_HEIGHT           (160)
+#else
+#define DISP_IMAGE_HEIGHT           (BOARD_DISPLAY_HEIGHT)
+#endif
 /* snap */
 #define SNAP_IMAGE_WIDTH            (128)
 #define SNAP_IMAGE_HEIGHT           (160)

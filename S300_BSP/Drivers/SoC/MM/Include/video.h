@@ -52,33 +52,6 @@ typedef uint8_t UINT8;
 #define DISP_WFRAME0_ADDR           (0x44080000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 6));//0x80000000;
 #define DISP_WFRAME1_ADDR           (0x44080000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 6));//0x80100000;
 
-// 定义结构体
-typedef struct
-{
-    int width;
-    int height;
-} ImageDimensions;
-
-typedef struct
-{
-    float width;
-    float height;
-} DownscaleRatio;
-
-typedef struct
-{
-    int x;
-    int y;
-} CropCoordinates;
-
-// 定义枚举类型用于裁剪方式
-typedef enum
-{
-    CROP_CENTER, // 裁剪中心
-    CROP_TOP_LEFT,  // 裁剪左上角
-    CROP_BOTTOM_RIGHT  // 裁剪右下角
-} CropType;
-
 /* *
  *	1.config the clock for PLL
  *	int init_mm_pll(stPLLPRO pro);
@@ -123,7 +96,41 @@ typedef enum _mm_video_config_{
     USE_DVP_CLK     = 0x4
 }emMMProcessPro;
 
+typedef enum
+{
+  LCD_ST7735S = 0, // HS180S10B
+  LCD_ST7789 = 1,  // D200C2407V0
+  LCD_UNKNOWN
+} emLcdType;
 
+void init_video_with_type(emDVP dvp, emCameraFormatPro formatPro, emMMProcessPro mmPro, emLcdType lcdType);
+
+// 定义结构体
+typedef struct
+{
+    int width;
+    int height;
+} ImageDimensions;
+
+typedef struct
+{
+    float width;
+    float height;
+} DownscaleRatio;
+
+typedef struct
+{
+    int x;
+    int y;
+} CropCoordinates;
+
+// 定义枚举类型用于裁剪方式
+typedef enum
+{
+    CROP_CENTER, // 裁剪中心
+    CROP_TOP_LEFT,  // 裁剪左上角
+    CROP_BOTTOM_RIGHT  // 裁剪右下角
+} CropType;
 
 void init_video(emDVP dvp,emCameraFormatPro formatPro,emMMProcessPro mmPro);
 void init_mm_subsystem(emMM mm,emCameraFormatPro cameraPro,emMMProcessPro mmPro);

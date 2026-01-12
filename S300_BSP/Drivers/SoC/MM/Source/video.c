@@ -2,6 +2,24 @@
 #include "video.h"
 #include "s300.h"
 
+#define EXTRACT_COMBINE_REG1(cfg_data_row, cfg_start_x) \
+    ((((cfg_data_row) >> 8) & 0xFF) << 24) | \
+    (((cfg_start_x) & 0xFF) << 16) | \
+    ((((cfg_start_x) >> 8) & 0xFF) << 8) | \
+    0x2A
+
+#define EXTRACT_COMBINE_REG2(cfg_data_row, cfg_start_y) \
+    (((cfg_start_y) & 0xFF) << 24) | \
+    ((((cfg_start_y) >> 8) & 0xFF) << 16) | \
+    (0x2B << 8) | \
+    (((cfg_data_row) >> 0) & 0xFF)
+
+#define EXTRACT_COMBINE_REG3(cfg_data_col) \
+    (0x00 << 24) | \
+    (0x2C << 16) | \
+    ((((cfg_data_col) >> 0) & 0xFF) << 8) | \
+    (((cfg_data_col) >> 8) & 0xFF)
+
 /**
  * The function `init_video` is used to inital the regs for video ,the video sensor is ov5640.
  * 
@@ -10,8 +28,99 @@
  * @param mmPro Used to select the processing mode for controlling image processing @see emMMProcessPro
  */
 
-void init_video(emDVP dvp,emCameraFormatPro formatPro,emMMProcessPro mmPro)
-{//改为初始化一些MM系统需要内容
+
+void init_video(emDVP dvp, emCameraFormatPro formatPro, emMMProcessPro mmPro)
+{
+    // 默认使用 ST7735S (HS180S10B)，或者您可以修改此处默认值
+    init_video_with_type(dvp, formatPro, mmPro, LCD_ST7735S);
+}
+
+static void lcd_spi_init_st7735s(void)
+{
+    /* spi init for ST7735S (HS180S10B) */
+    // 定义 MADCTL 寄存器中控制旋转的三个关键位
+    #define MADCTL_MY           (1 << 7)  // 页面地址顺序（上下翻转）
+    #define MADCTL_MX           (1 << 6)  // 列地址顺序（左右翻转）
+    #define MADCTL_MV           (1 << 5)  // 页面/列顺序（行列反转）
+
+    #define MADCTL_ROTATE_180   (MADCTL_MY | MADCTL_MX)
+
+    REG32(DSP_VIDEO_SS_BASE + 0x100) = 0xFFFDFFFE; 
+    REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x072204E0; 
+    REG32(DSP_VIDEO_SS_BASE + 0x108) = 0x25302E0A; 
+    REG32(DSP_VIDEO_SS_BASE + 0x10c) = 0x2E26282A;
+    REG32(DSP_VIDEO_SS_BASE + 0x110) = 0x0301003A; 
+    REG32(DSP_VIDEO_SS_BASE + 0x114) = 0x1604E113; 
+    REG32(DSP_VIDEO_SS_BASE + 0x118) = 0x262D0D06; 
+    REG32(DSP_VIDEO_SS_BASE + 0x11c) = 0x25272723;
+    REG32(DSP_VIDEO_SS_BASE + 0x120) = 0x01003B2D;
+
+    REG32(DSP_VIDEO_SS_BASE + 0x124) = 0x7755B6BB; 
+    REG32(DSP_VIDEO_SS_BASE + 0x128) = 0x28C01304;
+    REG32(DSP_VIDEO_SS_BASE + 0x12c) = 0xC0C10408;
+    REG32(DSP_VIDEO_SS_BASE + 0x130) = 0xC3000DC2;//0x3a283680;
+    REG32(DSP_VIDEO_SS_BASE + 0x134) = 0x8DC42A8D;//0xb100b066;
+    REG32(DSP_VIDEO_SS_BASE + 0x138) = 0x361AC5EE;//0x2b411b0;
+    
+    REG32(DSP_VIDEO_SS_BASE + 0x13c) = 0xB1063A00 | MADCTL_ROTATE_180;//0xb70202b6;
+    REG32(DSP_VIDEO_SS_BASE + 0x140) = 0xB23C3C05;
+    REG32(DSP_VIDEO_SS_BASE + 0x144) = 0xB33C3C05;
+
+    REG32(DSP_VIDEO_SS_BASE + 0x148) = 0xBF;       
+    REG32(DSP_VIDEO_SS_BASE + 0x14c) = 0x053C3C05;
+    REG32(DSP_VIDEO_SS_BASE + 0x150) = 0x03B43C3C;
+    REG32(DSP_VIDEO_SS_BASE + 0x154) = 0x11;
+
+    REG32(DSP_VIDEO_SS_BASE + 0x190) = 0x3de;
+
+    delay_ms(5);
+    REG32(DSP_VIDEO_SS_BASE + 0x100) = 0x0;
+    REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x29;
+}
+
+static void lcd_spi_init_st7789(void)
+{
+    /* spi init for ST7789 (D200C2407V0) */
+    REG32(DSP_VIDEO_SS_BASE + 0x100) = 0x0;
+    REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x11;
+    delay_ms(120);
+
+    /* spi init */
+    REG32(DSP_VIDEO_SS_BASE + 0x100) = 0xed56abea; 
+    
+    #ifndef DISP_ROTATION
+    #define DISP_ROTATION 0
+    #endif
+
+    REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x063a0036 | (DISP_ROTATION << 8);
+    REG32(DSP_VIDEO_SS_BASE + 0x108) = 0x000c0cb2; 
+    REG32(DSP_VIDEO_SS_BASE + 0x10c) = 0x35b73333;
+    REG32(DSP_VIDEO_SS_BASE + 0x110) = 0x2cc032bb; 
+    REG32(DSP_VIDEO_SS_BASE + 0x114) = 0xc3ff01c2; 
+    REG32(DSP_VIDEO_SS_BASE + 0x118) = 0xc620c419; 
+    REG32(DSP_VIDEO_SS_BASE + 0x11c) = 0xa1a4d00f;
+    REG32(DSP_VIDEO_SS_BASE + 0x120) = 0x0200d0e0;
+
+    REG32(DSP_VIDEO_SS_BASE + 0x124) = 0xf3fff7ff; 
+    REG32(DSP_VIDEO_SS_BASE + 0x128) = 0x32280a07;
+    REG32(DSP_VIDEO_SS_BASE + 0x12c) = 0x0e064244;
+    REG32(DSP_VIDEO_SS_BASE + 0x130) = 0xe1171412;
+    REG32(DSP_VIDEO_SS_BASE + 0x134) = 0x070200d0;
+    REG32(DSP_VIDEO_SS_BASE + 0x138) = 0x5431280a;
+
+    REG32(DSP_VIDEO_SS_BASE + 0x13c) = 0x171c0e47;
+    REG32(DSP_VIDEO_SS_BASE + 0x140) = 0x29211e1b;
+    REG32(DSP_VIDEO_SS_BASE + 0x190) = 0xfffffbde;
+}
+
+// 兼容函数，保留旧 API
+void init_high_camera_st77_lcd(emMM mm, emCameraFormatPro cameraPro, emMMProcessPro mmPro)
+{
+    init_video_with_type(EM_DVP, cameraPro, mmPro, LCD_ST7735S);
+}
+
+void init_video_with_type(emDVP dvp, emCameraFormatPro cameraPro, emMMProcessPro mmPro, emLcdType lcdType)
+{
   (void)dvp;
   // set_cortex_m4_core_reset(EM_BOOL_FALSE);//  *(volatile UINT32*)(RCC_BASE+ 0x18) =  0xFFFFFFFF;
   // *(volatile UINT32*)(DSP_RCC_BASE + 0x40)  = 0x0;
@@ -26,11 +135,83 @@ void init_video(emDVP dvp,emCameraFormatPro formatPro,emMMProcessPro mmPro)
     REG32(DSP_RCC_BASE + 0x40) |= 0x11;
     delay_ms(10);
 
+    // Common Regs
+    // REG32(DSP_VIDEO_SS_BASE + 0x00) = (0 | (1 << 8));//0x100:YUV , 0x101:RGB565
+    /* 0x100 seems common for both implementations provided */
+    REG32(DSP_VIDEO_SS_BASE + 0x00) = 0x100;
 
-    //init_mm_subsystem(EM_MM0,formatPro,mmPro);
-    //init_mm_subsystem_small(EM_MM0,formatPro,mmPro);
-    init_high_camera_st77_lcd(EM_MM0,formatPro,mmPro);
+
+    REG32(DSP_VIDEO_SS_BASE + 0x04) = (SENSOR_IMAGE_WIDTH | (SENSOR_IMAGE_HEIGHT << 16));
+    REG32(DSP_VIDEO_SS_BASE + 0x08) = BINNING_SIZE;
+    REG32(DSP_VIDEO_SS_BASE + 0x0c) = (BINNING_IMAGE_WIDTH | (BINNING_IMAGE_HEIGHT << 16));
+    REG32(DSP_VIDEO_SS_BASE + 0x10) = (DOWNSCALE_IMAGE_WIDTH | (DOWNSCALE_IMAGE_HEIGHT << 16));
+    REG32(DSP_VIDEO_SS_BASE + 0x14) = (int)((float)BINNING_IMAGE_WIDTH * DOWNSCALE_FACTOR / DOWNSCALE_IMAGE_WIDTH);
+    REG32(DSP_VIDEO_SS_BASE + 0x18) = (int)((float)BINNING_IMAGE_HEIGHT * DOWNSCALE_FACTOR / DOWNSCALE_IMAGE_HEIGHT);
+    REG32(DSP_VIDEO_SS_BASE + 0x1c) = 0x0;
+    REG32(DSP_VIDEO_SS_BASE + 0x20) = (DISP_IMAGE_WIDTH | (DISP_IMAGE_HEIGHT << 16));
+    REG32(DSP_VIDEO_SS_BASE + 0x24) = 0x0;
+
+    REG32(DSP_VIDEO_SS_BASE + 0x28) = (SNAP_IMAGE_WIDTH | (SNAP_IMAGE_HEIGHT << 16));
+    REG32(DSP_VIDEO_SS_BASE + 0x2c) = 1 | (0 << 8);
+
+    REG32(DSP_VIDEO_SS_BASE + 0x30) = DISP_WFRAME0_ADDR;
+    REG32(DSP_VIDEO_SS_BASE + 0x34) = DISP_WFRAME1_ADDR;
+
+    REG32(DSP_VIDEO_SS_BASE + 0x40) = DISP_RFRAME0_ADDR;
+    REG32(DSP_VIDEO_SS_BASE + 0x44) = DISP_RFRAME1_ADDR;
+    REG32(DSP_VIDEO_SS_BASE + 0x48) = DISP_RALPHA0_ADDR;
+    REG32(DSP_VIDEO_SS_BASE + 0x4c) = DISP_RALPHA1_ADDR;
+
+    REG32(DSP_VIDEO_SS_BASE + 0x50) = 0x0;
+    REG32(DSP_VIDEO_SS_BASE + 0x54) = 0x0;
+
+    REG32(DSP_VIDEO_SS_BASE + 0x58) = (SNAP_IMAGE_WIDTH | (SNAP_IMAGE_HEIGHT << 16));
+    REG32(DSP_VIDEO_SS_BASE + 0x5c) = RD_SOURCE_FRAME_START_X | (RD_SOURCE_FRAME_START_Y << 16);
+
+    REG32(DSP_VIDEO_SS_BASE + 0x60) = 0x0;
+
+    // Common Regs for Extract/Combine
+    REG32(DSP_VIDEO_SS_BASE + 0x194) = EXTRACT_COMBINE_REG1(DISP_IMAGE_WIDTH + DISP_START_X - 1, DISP_START_X);
+    REG32(DSP_VIDEO_SS_BASE + 0x198) = EXTRACT_COMBINE_REG2(DISP_IMAGE_WIDTH + DISP_START_X - 1, DISP_START_Y);
+    REG32(DSP_VIDEO_SS_BASE + 0x19c) = EXTRACT_COMBINE_REG3(DISP_IMAGE_HEIGHT + DISP_START_Y - 1);
+    
+    REG32(DSP_VIDEO_SS_BASE + 0x1a0) = 0x0;
+    REG32(DSP_VIDEO_SS_BASE + 0x1a4) = 0x0;
+    REG32(DSP_VIDEO_SS_BASE + 0x1a8) = 0x0;
+    REG32(DSP_VIDEO_SS_BASE + 0x1ac) = 0x0;
+    REG32(DSP_VIDEO_SS_BASE + 0x1b0) = 0x0;
+    REG32(DSP_VIDEO_SS_BASE + 0x1c4) = (DISP_IMAGE_WIDTH | (DISP_IMAGE_HEIGHT << 16));
+    REG32(DSP_VIDEO_SS_BASE + 0x1d0) = 0x10000;
+    REG32(DSP_VIDEO_SS_BASE + 0x1e0) = 0x1;
+
+
+    if (lcdType == LCD_ST7735S)
+    {
+        REG32(DSP_VIDEO_SS_BASE + 0x1c0) = (0x1 | (11 << 23) | (1 << 29)); // Consistent with ST7735S settings
+        
+        // Let the helper do the SPI commands for ST7735S
+        lcd_spi_init_st7735s();
+        
+        // Final Config for Video SS timing/polarity
+        REG32(DSP_VIDEO_SS_BASE + 0x1c0) = (0x1 | (11 << 23) | (1 << 29));
+    }
+    else if (lcdType == LCD_ST7789)
+    {
+        REG32(DSP_VIDEO_SS_BASE + 0x1c0) = 0x2580003c;
+        REG32(DSP_VIDEO_SS_BASE + 0x1e0) = 0x0; // ST7789 specific config
+
+        lcd_spi_init_st7789();
+        
+        REG32(DSP_VIDEO_SS_BASE + 0x1c0) = 0x2580003c;
+    }
+
+
+    REG32(DSP_VIDEO_SS_BASE + 0x70) = 0x0;
+    
+    // Debug
+    // print_video_registers();
 }
+
 
 
 /**
@@ -322,24 +503,6 @@ void calculate_crop_coordinates(ImageDimensions downscale_size, ImageDimensions 
     }
 }
 
-#define EXTRACT_COMBINE_REG1(cfg_data_row, cfg_start_x) \
-    ((((cfg_data_row) >> 8) & 0xFF) << 24) | \
-    (((cfg_start_x) & 0xFF) << 16) | \
-    ((((cfg_start_x) >> 8) & 0xFF) << 8) | \
-    0x2A
-
-#define EXTRACT_COMBINE_REG2(cfg_data_row, cfg_start_y) \
-    (((cfg_start_y) & 0xFF) << 24) | \
-    ((((cfg_start_y) >> 8) & 0xFF) << 16) | \
-    (0x2B << 8) | \
-    (((cfg_data_row) >> 0) & 0xFF)
-
-#define EXTRACT_COMBINE_REG3(cfg_data_col) \
-    (0x00 << 24) | \
-    (0x2C << 16) | \
-    ((((cfg_data_col) >> 0) & 0xFF) << 8) | \
-    (((cfg_data_col) >> 8) & 0xFF)
-
 void init_mm_subsystem_small(emMM mm,emCameraFormatPro cameraPro,emMMProcessPro mmPro)
 {
   (void)mm;
@@ -428,99 +591,3 @@ void init_mm_subsystem_small(emMM mm,emCameraFormatPro cameraPro,emMMProcessPro 
 
 
 
-void init_high_camera_st77_lcd(emMM mm,emCameraFormatPro cameraPro,emMMProcessPro mmPro)
-{
-  (void)mm;
-  (void)cameraPro;
-  (void)mmPro;
-
-  //REG32(DSP_VIDEO_SS_BASE + 0x00) = (1 | (0 << 8));//0x100:YUV , 0x101:RGB565
-    REG32(DSP_VIDEO_SS_BASE + 0x00) = (0 | (1 << 8));//0x100:YUV , 0x101:RGB565
-    // REG32(DSP_VIDEO_SS_BASE + 0x00) = (0 | (1 << 8));//0x100:YUV , 0x101:RGB565
-
-    REG32(DSP_VIDEO_SS_BASE + 0x04) = (SENSOR_IMAGE_WIDTH | (SENSOR_IMAGE_HEIGHT << 16));//0x2d00500;//0x7890a20;//(SENSOR_IMAGE_WIDTH | (IMAGE_HEIGHT << 16));
-    REG32(DSP_VIDEO_SS_BASE + 0x08) = BINNING_SIZE;//BINNING_RATIO;
-    REG32(DSP_VIDEO_SS_BASE + 0x0c) = (BINNING_IMAGE_WIDTH | (BINNING_IMAGE_HEIGHT << 16));//0xb40140;//0x1680280;//WIDTH_AFTER_BINNING | (HEIGHT_AFTER_BINNING << 16);
-    REG32(DSP_VIDEO_SS_BASE + 0x10) = (DOWNSCALE_IMAGE_WIDTH | (DOWNSCALE_IMAGE_HEIGHT << 16));//0x1400140;//0x1400168;//0xa000f0;//0x14001e0;//WIDTH_AFTER_DOWNSCALE | (HEIGHT_AFTER_DOWNSCALE << 16);
-    REG32(DSP_VIDEO_SS_BASE + 0x14) = (int)((float)BINNING_IMAGE_WIDTH * DOWNSCALE_FACTOR / DOWNSCALE_IMAGE_WIDTH);//(int)downscale_ratio.width;//0x38e3;//0x2aaa;//0x2000;//0x2aaa;//0x2b33;//HORIZONAL_DOWNSCALE_RATIO;
-    REG32(DSP_VIDEO_SS_BASE + 0x18) = (int)((float)BINNING_IMAGE_HEIGHT * DOWNSCALE_FACTOR / DOWNSCALE_IMAGE_HEIGHT);//0x2400;//0x2000;//0x2400;//0x3099;//VERTICAL_DOWNSCALE_RATIO;
-    REG32(DSP_VIDEO_SS_BASE + 0x1c) = 0x0;//CROP_DISP_START_X | (CROP_DISP_START_Y << 16);
-    REG32(DSP_VIDEO_SS_BASE + 0x20) = (DISP_IMAGE_WIDTH | (DISP_IMAGE_HEIGHT << 16));//0x1400168;//0xb40140;//0xa000f0;//0x14001e0;//0xa000f0; //裁剪尺寸//CROP_DISP_WIDTH | (CROP_DISP_HEIGHT << 16);
-    REG32(DSP_VIDEO_SS_BASE + 0x24) = 0x0;//CROP_SNAP_START_X | (CROP_SNAP_START_Y << 16);
-    REG32(DSP_VIDEO_SS_BASE + 0x28) = (SNAP_IMAGE_WIDTH | (SNAP_IMAGE_HEIGHT << 16));//0x1400168;//0xb40140;//0xa000f0;//0x14001e0;//0xa000f0; //裁剪尺寸//CROP_SNAP_WIDTH | (CROP_SNAP_HEIGHT << 16);
-    REG32(DSP_VIDEO_SS_BASE + 0x2c) = 1 | (0 << 8);
-    REG32(DSP_VIDEO_SS_BASE + 0x30) = DISP_WFRAME0_ADDR;//0x80000000;
-    REG32(DSP_VIDEO_SS_BASE + 0x34) = DISP_WFRAME1_ADDR;//0x80100000;
-    REG32(DSP_VIDEO_SS_BASE + 0x38) = 0x0;//0;
-    REG32(DSP_VIDEO_SS_BASE + 0x3c) = 0x0;//0;
-    REG32(DSP_VIDEO_SS_BASE + 0x40) = DISP_RFRAME0_ADDR;//0x44035000;//0x80200000;
-    REG32(DSP_VIDEO_SS_BASE + 0x44) = DISP_RFRAME1_ADDR;//0x44035000;//0x80300000;
-    REG32(DSP_VIDEO_SS_BASE + 0x48) = DISP_RALPHA0_ADDR;//0x44060000;//0x80250000;
-    REG32(DSP_VIDEO_SS_BASE + 0x4c) = DISP_RALPHA1_ADDR;//0x44060000;//0x80350000;
-    REG32(DSP_VIDEO_SS_BASE + 0x50) = 0x0;//0;
-    REG32(DSP_VIDEO_SS_BASE + 0x54) = 0x0;//0;
-    REG32(DSP_VIDEO_SS_BASE + 0x58) = (SNAP_IMAGE_WIDTH | (SNAP_IMAGE_HEIGHT << 16));
-    REG32(DSP_VIDEO_SS_BASE + 0x5c) = RD_SOURCE_FRAME_START_X | (RD_SOURCE_FRAME_START_Y << 16);
-    REG32(DSP_VIDEO_SS_BASE + 0x60) = 0x0;//0;
-    // REG32(DSP_VIDEO_SS_BASE + 0x70) = 0x1;//1;
-    /* spi init */
-    REG32(DSP_VIDEO_SS_BASE + 0x100) = 0xFFFDFFFE; 
-    REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x072204E0; 
-    REG32(DSP_VIDEO_SS_BASE + 0x108) = 0x25302E0A; 
-    REG32(DSP_VIDEO_SS_BASE + 0x10c) = 0x2E26282A;
-    REG32(DSP_VIDEO_SS_BASE + 0x110) = 0x0301003A; 
-    REG32(DSP_VIDEO_SS_BASE + 0x114) = 0x1604E113; 
-    REG32(DSP_VIDEO_SS_BASE + 0x118) = 0x262D0D06; 
-    REG32(DSP_VIDEO_SS_BASE + 0x11c) = 0x25272723;
-    REG32(DSP_VIDEO_SS_BASE + 0x120) = 0x01003B2D;
-
-    REG32(DSP_VIDEO_SS_BASE + 0x124) = 0x7755B6BB; 
-    REG32(DSP_VIDEO_SS_BASE + 0x128) = 0x28C01304;
-    REG32(DSP_VIDEO_SS_BASE + 0x12c) = 0xC0C10408;
-    REG32(DSP_VIDEO_SS_BASE + 0x130) = 0xC3000DC2;//0x3a283680;
-    REG32(DSP_VIDEO_SS_BASE + 0x134) = 0x8DC42A8D;//0xb100b066;
-    REG32(DSP_VIDEO_SS_BASE + 0x138) = 0x361AC5EE;//0x2b411b0;
-    // 定义 MADCTL 寄存器中控制旋转的三个关键位
-    #define MADCTL_MY           (1 << 7)  // 页面地址顺序（上下翻转）
-    #define MADCTL_MX           (1 << 6)  // 列地址顺序（左右翻转）
-    #define MADCTL_MV           (1 << 5)  // 页面/列顺序（行列反转）
-
-    // 封装常用旋转角度的配置参数（含 RGB 顺序默认为 RGB，如需 BGR 需额外设置 RGB 位）
-    #define MADCTL_ROTATE_0     (0x00)                              // 0°（默认：不上翻、不左翻、行列正常）
-    #define MADCTL_ROTATE_90    (MADCTL_MX | MADCTL_MV)             // 90°（右翻+行列反转）
-    #define MADCTL_ROTATE_180   (MADCTL_MY | MADCTL_MX)             // 180°（下翻+左翻）
-    #define MADCTL_ROTATE_270   (MADCTL_MY | MADCTL_MX | MADCTL_MV) // 270°（下翻+右翻+行列反转）
-    #define MADCTL_FLIP_V       (MADCTL_MY)                         // 垂直翻转（上下镜像）
-    #define MADCTL_FLIP_H       (MADCTL_MX)                         // 水平翻转（左右镜像）
-    #define MADCTL_TRANSPOSE    (MADCTL_MV)                         // 行列反转（转置模式）
-    
-    REG32(DSP_VIDEO_SS_BASE + 0x13c) = 0xB1063A00 | MADCTL_ROTATE_180;//0xb70202b6;
-    REG32(DSP_VIDEO_SS_BASE + 0x140) = 0xB23C3C05;
-    REG32(DSP_VIDEO_SS_BASE + 0x144) = 0xB33C3C05;
-
-    REG32(DSP_VIDEO_SS_BASE + 0x148) = 0xBF;       
-    REG32(DSP_VIDEO_SS_BASE + 0x14c) = 0x053C3C05;
-    REG32(DSP_VIDEO_SS_BASE + 0x150) = 0x03B43C3C;
-    REG32(DSP_VIDEO_SS_BASE + 0x154) = 0x11;
-
-    REG32(DSP_VIDEO_SS_BASE + 0x190) = 0x3de;
-    REG32(DSP_VIDEO_SS_BASE + 0x194) = EXTRACT_COMBINE_REG1(DISP_IMAGE_WIDTH + DISP_START_X - 1, DISP_START_X);
-    REG32(DSP_VIDEO_SS_BASE + 0x198) = EXTRACT_COMBINE_REG2(DISP_IMAGE_WIDTH + DISP_START_X - 1, DISP_START_Y);
-    REG32(DSP_VIDEO_SS_BASE + 0x19c) = EXTRACT_COMBINE_REG3(DISP_IMAGE_HEIGHT + DISP_START_Y - 1);
-
-    REG32(DSP_VIDEO_SS_BASE + 0x1a0) = 0x0;
-    REG32(DSP_VIDEO_SS_BASE + 0x1a4) = 0x0;
-    REG32(DSP_VIDEO_SS_BASE + 0x1a8) = 0x0;
-    REG32(DSP_VIDEO_SS_BASE + 0x1ac) = 0x0;
-    REG32(DSP_VIDEO_SS_BASE + 0x1b0) = 0x0;
-    REG32(DSP_VIDEO_SS_BASE + 0x1c0) = 73 | (1 << 30);
-    REG32(DSP_VIDEO_SS_BASE + 0x1c4) = (DISP_IMAGE_WIDTH | (DISP_IMAGE_HEIGHT << 16));//0x1400168;//0xb40140;//0xa000f0;//0x14001e0;//0xa000f0;
-    REG32(DSP_VIDEO_SS_BASE + 0x1d0) = 0x10000;
-    REG32(DSP_VIDEO_SS_BASE + 0x1e0) = 0x1;
-    delay_ms(5);//arm_delay_us(100000);
-    REG32(DSP_VIDEO_SS_BASE + 0x100) = 0x0;
-    REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x29;
-    REG32(DSP_VIDEO_SS_BASE + 0x1c0) = (0x1 | (11 << 23) | (1 << 29));
-    // REG32(DSP_VIDEO_SS_BASE + 0x1e0) = 0x1;
-    
-}

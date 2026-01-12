@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include "ov5640.h"
 #include "video.h"
+#include "board.h"
+#include "rcc.h"
 
 /* 取材自原始驱动的初始化表，压缩为关键寄存器配置以演示移植；
  * 若需完整画质，请替换为完整表（可将大数组拆到独立 .inc 以减小编译单元体积）。
@@ -354,4 +356,39 @@ int ov5640_set_light(i2c_soft_t *i2c, uint8_t saddr, bool en)
         if (wr(i2c, saddr, 0x3019, 0x00)) return -1;
     }
     return 0;
+}
+
+// OV5640 Cam Reset & Power Down Pin Config (Board Level)
+#ifndef BOARD_CAM_RST_PIN
+#define BOARD_CAM_RST_PIN 15u
+#endif
+#ifndef BOARD_CAM_PWDN_PIN
+#define BOARD_CAM_PWDN_PIN 6u
+#endif
+
+void ov5640_hard_init(void)
+{
+    // Enable GPIO Clock
+    set_cortex_m4_apb1_clock(RCC_CM4_APB1_GPIO, true);
+
+    // PWDN
+    gpio_set_function(GPIOA, BOARD_CAM_PWDN_PIN, FUNCTION_2);
+    gpio_set_mode(GPIOA, BOARD_CAM_PWDN_PIN, GPIO_UP);
+    gpio_set_direction(GPIOA, BOARD_CAM_PWDN_PIN, 1);
+
+    // RST
+    gpio_set_function(GPIOA, BOARD_CAM_RST_PIN, FUNCTION_2);
+    gpio_set_mode(GPIOA, BOARD_CAM_RST_PIN, GPIO_UP);
+    gpio_set_direction(GPIOA, BOARD_CAM_RST_PIN, 1);
+
+    // Power On Sequence
+    gpio_set_data(GPIOA, BOARD_CAM_RST_PIN, 0); // RST Low
+    gpio_set_data(GPIOA, BOARD_CAM_PWDN_PIN, 1); // PWDN High
+    for (volatile uint32_t i = 0; i < 800000u; i++) __asm volatile("nop");
+    
+    gpio_set_data(GPIOA, BOARD_CAM_PWDN_PIN, 0); // PWDN Low
+    for (volatile uint32_t i = 0; i < 800000u; i++) __asm volatile("nop");
+    
+    gpio_set_data(GPIOA, BOARD_CAM_RST_PIN, 1); // RST High
+    for (volatile uint32_t i = 0; i < 2400000u; i++) __asm volatile("nop");
 }

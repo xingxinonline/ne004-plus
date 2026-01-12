@@ -18,6 +18,14 @@ extern "C" {
 #define BOARD_UART_DEBUG_IDX 3u
 #endif
 
+// OV5640 Camera PINs (GPIOA)
+#ifndef BOARD_CAM_RST_PIN
+#define BOARD_CAM_RST_PIN 15u
+#endif
+#ifndef BOARD_CAM_PWDN_PIN
+#define BOARD_CAM_PWDN_PIN 6u
+#endif
+
 // 初始化板级系统时钟（切换 CM4 到 PLL 等），需在 UART 之前调用
 void board_clock_init(void);
 

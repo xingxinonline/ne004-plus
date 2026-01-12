@@ -28,8 +28,8 @@ include_directories(
 set(SRCS
     ${DEVICE_DIR}/Source/GCC/startup_S300.S
     ${ROOT}/Boards/generic_evb/board.c
-    ${ROOT}/Boards/generic_evb/retarget.c
-    ${ROOT}/Boards/generic_evb/syscalls.c
+    ${ROOT}/Boards/Common/retarget.c
+    ${ROOT}/Boards/Common/syscalls.c
     ${ROOT}/CMSIS/Device/PiMCHIP/S300/Source/system_S300.c
     ${ROOT}/Drivers/SoC/RCC/Source/rcc.c
     ${ROOT}/Drivers/SoC/GPIO/Source/gpio.c

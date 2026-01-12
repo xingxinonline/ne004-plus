@@ -24,8 +24,8 @@ set(SRCS
     ${ROOT}/CMSIS/Device/PiMCHIP/S300/Source/system_S300.c
     ${PROJECT_DIR}/Src/main.c
     ${ROOT}/Boards/generic_evb/board.c
-    ${ROOT}/Boards/generic_evb/retarget.c
-    ${ROOT}/Boards/generic_evb/syscalls.c
+    ${ROOT}/Boards/Common/retarget.c
+    ${ROOT}/Boards/Common/syscalls.c
     ${ROOT}/Drivers/SoC/RCC/Source/rcc.c
     ${ROOT}/Drivers/SoC/DMA/Source/dma.c
     ${ROOT}/Drivers/SoC/GPIO/Source/gpio.c

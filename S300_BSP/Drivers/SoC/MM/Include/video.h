@@ -16,50 +16,99 @@ typedef uint8_t UINT8;
 #define REG32(addr) (*(volatile uint32_t *)(uintptr_t)(addr))
 #endif
 
+#ifndef RD_SOURCE_FRAME_START_X
 #define RD_SOURCE_FRAME_START_X (0)
+#endif
+#ifndef RD_SOURCE_FRAME_START_Y
 #define RD_SOURCE_FRAME_START_Y (0)
+#endif
 
+#ifndef BINNING_SIZE
 #define BINNING_SIZE            (1) //binning = 4 @ Sensor image size (1280*1920) 尽量binning到足够小
+#endif
 
 /* binning */
+#ifndef BINNING_IMAGE_WIDTH
 #define BINNING_IMAGE_WIDTH         (288)
+#endif
+#ifndef BINNING_IMAGE_HEIGHT
 #define BINNING_IMAGE_HEIGHT        (360)
+#endif
 /* sensor */
+#ifndef SENSOR_IMAGE_WIDTH
 #define SENSOR_IMAGE_WIDTH          (BINNING_IMAGE_WIDTH * (1U << BINNING_SIZE))
+#endif
+#ifndef SENSOR_IMAGE_HEIGHT
 #define SENSOR_IMAGE_HEIGHT         (BINNING_IMAGE_HEIGHT * (1U << BINNING_SIZE))
+#endif
 /* downscale */
+#ifndef DOWNSCALE_IMAGE_WIDTH
 #define DOWNSCALE_IMAGE_WIDTH       (128)
+#endif
+#ifndef DOWNSCALE_IMAGE_HEIGHT
 #define DOWNSCALE_IMAGE_HEIGHT      (160)
+#endif
 /* display  */
+#ifndef DISP_START_X
 #define DISP_START_X                (0)
+#endif
+#ifndef DISP_START_Y
 #define DISP_START_Y                (0)
+#endif
+#ifndef DISP_IMAGE_WIDTH
 #ifndef BOARD_DISPLAY_WIDTH
 #define DISP_IMAGE_WIDTH            (128)
 #else
 #define DISP_IMAGE_WIDTH            (BOARD_DISPLAY_WIDTH)
 #endif
+#endif
+
+#ifndef DISP_IMAGE_HEIGHT
 #ifndef BOARD_DISPLAY_HEIGHT
 #define DISP_IMAGE_HEIGHT           (160)
 #else
 #define DISP_IMAGE_HEIGHT           (BOARD_DISPLAY_HEIGHT)
 #endif
+#endif
 /* snap */
+#ifndef SNAP_IMAGE_WIDTH
 #define SNAP_IMAGE_WIDTH            (128)
+#endif
+#ifndef SNAP_IMAGE_HEIGHT
 #define SNAP_IMAGE_HEIGHT           (160)
+#endif
 
+#ifndef BINNING_LINE_MAX_SIZE
 #define BINNING_LINE_MAX_SIZE       (1280)
+#endif
+#ifndef DOWNSCALE_FACTOR
 #define DOWNSCALE_FACTOR            (8192)
+#endif
 
+#ifndef OFFLINE_IMAGE_BASE_ADDRESS
 #define OFFLINE_IMAGE_BASE_ADDRESS  (0x44000000)
+#endif
 
 /* SRAM0 */
-#define DISP_RALPHA0_ADDR           (0x44040000 - (DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT * 1));//0x44060000;//0x80250000;
-#define DISP_RALPHA1_ADDR           (0x44040000 - (DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT * 1));//0x44060000;//0x80350000;
+#ifndef DISP_RALPHA0_ADDR
+#define DISP_RALPHA0_ADDR           (0x44040000 - (DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT * 1))//0x44060000;//0x80250000;
+#endif
+#ifndef DISP_RALPHA1_ADDR
+#define DISP_RALPHA1_ADDR           (0x44040000 - (DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT * 1))//0x44060000;//0x80350000;
+#endif
 /* SRAM1 */
-#define DISP_RFRAME0_ADDR           (0x44080000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 2));//0x44035000;//0x80200000
-#define DISP_RFRAME1_ADDR           (0x44080000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 4));//0x44035000;//0x80300000;
-#define DISP_WFRAME0_ADDR           (0x44080000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 6));//0x80000000;
-#define DISP_WFRAME1_ADDR           (0x44080000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 6));//0x80100000;
+#ifndef DISP_RFRAME0_ADDR
+#define DISP_RFRAME0_ADDR           (0x44080000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 2))//0x44035000;//0x80200000
+#endif
+#ifndef DISP_RFRAME1_ADDR
+#define DISP_RFRAME1_ADDR           (0x44080000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 4))//0x44035000;//0x80300000;
+#endif
+#ifndef DISP_WFRAME0_ADDR
+#define DISP_WFRAME0_ADDR           (0x44080000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 6))//0x80000000;
+#endif
+#ifndef DISP_WFRAME1_ADDR
+#define DISP_WFRAME1_ADDR           (0x44080000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 6))//0x80100000;
+#endif
 
 /* *
  *	1.config the clock for PLL

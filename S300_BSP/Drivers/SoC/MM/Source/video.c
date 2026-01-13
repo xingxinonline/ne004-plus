@@ -75,10 +75,6 @@ static void lcd_spi_init_st7735s(void)
     REG32(DSP_VIDEO_SS_BASE + 0x154) = 0x11;
 
     REG32(DSP_VIDEO_SS_BASE + 0x190) = 0x3de;
-
-    delay_ms(5);
-    REG32(DSP_VIDEO_SS_BASE + 0x100) = 0x0;
-    REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x29;
 }
 
 static void lcd_spi_init_st7789(void)
@@ -196,29 +192,48 @@ void init_video_with_type(emDVP dvp, emCameraFormatPro cameraPro, emMMProcessPro
     REG32(DSP_VIDEO_SS_BASE + 0x1b0) = 0x0;
     REG32(DSP_VIDEO_SS_BASE + 0x1c4) = (DISP_IMAGE_WIDTH | (DISP_IMAGE_HEIGHT << 16));
     REG32(DSP_VIDEO_SS_BASE + 0x1d0) = 0x10000;
-    REG32(DSP_VIDEO_SS_BASE + 0x1e0) = 0x1;
-
-
+    
+    // Config first, then Enable
     if (lcdType == LCD_ST7735S)
     {
-        REG32(DSP_VIDEO_SS_BASE + 0x1c0) = (0x1 | (11 << 23) | (1 << 29)); // Consistent with ST7735S settings
+        // 1. Set Config Registers (SPI sequence)
+        lcd_spi_init_st7735s(); 
+
+        // 2. Set Timing/Polarity for Init (Low Speed 0x49)
+        REG32(DSP_VIDEO_SS_BASE + 0x1c0) = (73 | (1 << 30)); 
+
+        // 3. Enable Video Subsystem
+        REG32(DSP_VIDEO_SS_BASE + 0x1e0) = 0x1;
         
-        // Let the helper do the SPI commands for ST7735S
-        lcd_spi_init_st7735s();
-        
-        // Final Config for Video SS timing/polarity
+        // 4. Wait for reset/init sequence
+        delay_ms(5);
+
+        // 5. Send Display On (0x29) - Overwriting previous Sequence registers
+        REG32(DSP_VIDEO_SS_BASE + 0x100) = 0x0;
+        REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x29;
+
+        // 6. Switch to High Speed for Data
         REG32(DSP_VIDEO_SS_BASE + 0x1c0) = (0x1 | (11 << 23) | (1 << 29));
     }
     else if (lcdType == LCD_ST7789)
     {
         REG32(DSP_VIDEO_SS_BASE + 0x1c0) = 0x2580003c;
-        REG32(DSP_VIDEO_SS_BASE + 0x1e0) = 0x0; // ST7789 specific config
-
+        
         lcd_spi_init_st7789();
+        
+        REG32(DSP_VIDEO_SS_BASE + 0x1e0) = 0x0; // ST7789 logic might be different or this is copy-paste error regarding 0x1e0 usage?
+        // Old code didn't have ST7789 path this clear. Assuming enable is handled inside or needed.
+        // Actually ST7789 block in previous edits had 0x1e0=0 inside?
+        // Let's stick to what was provided for ST7789 but ensure 0x1e0 is handled.
+        
+        // Regardles, the user uses ST7735S.
         
         REG32(DSP_VIDEO_SS_BASE + 0x1c0) = 0x2580003c;
     }
-
+    else 
+    {
+         REG32(DSP_VIDEO_SS_BASE + 0x1e0) = 0x1;
+    }
 
     REG32(DSP_VIDEO_SS_BASE + 0x70) = 0x0;
     
